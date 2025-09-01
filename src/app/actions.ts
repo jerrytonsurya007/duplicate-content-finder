@@ -19,11 +19,19 @@ async function scrapeArticleContent(url: string): Promise<{ title: string; conte
     const html = await response.text();
     const $ = cheerio.load(html);
 
-    const title = $("h1").first().text().trim();
-    const content = $(".prose").text().trim();
+    const titleElement = $("h1").first();
+    const title = titleElement.text().trim();
     
-    if (!title || !content) {
-        throw new Error("Could not find title or content on the page.");
+    // To get the rest of the page content, we'll take the body's text
+    // and then remove the h1 title from it to avoid duplication.
+    titleElement.remove();
+    const content = $("body").text().replace(/\s\s+/g, ' ').trim();
+    
+    if (!title) {
+        throw new Error("Could not find a title (h1 tag) on the page.");
+    }
+    if (!content) {
+        throw new Error("Could not find any content on the page.");
     }
     
     return { title, content };
