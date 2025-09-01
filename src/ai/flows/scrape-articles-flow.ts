@@ -46,13 +46,15 @@ const scrapeArticlesFlow = ai.defineFlow(
     const articlePromises: Promise<Article | null>[] = [];
     // This selector is specific to the structure of shriramfinance.in
     $('.all-blogs-main-top-content-left-card-bottom a').each((i, el) => {
+      if (i >= 10) return false; // Stop after 10 articles
+      
       const articleUrl = $(el).attr('href');
       if (articleUrl) {
         const fullUrl = articleUrl.startsWith('http') ? articleUrl : `${baseUrl}${articleUrl}`;
         const promise = (async (): Promise<Article | null> => {
           try {
             const title = $(el).find('h4').text().trim();
-            const id = fullUrl.substring(fullUrl.lastIndexOf('/') + 1);
+            const id = fullUrl.substring(fullUrl.lastIndexOf('/') + 1) || fullUrl;
             const content = await getArticleContent(fullUrl);
 
             return {

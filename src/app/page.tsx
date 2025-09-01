@@ -39,16 +39,24 @@ export default function Home() {
       setArticles(scrapedArticles);
 
       // 2. Store in Firebase
-      const articlesCollection = collection(db, 'articles');
-      const dbPromises = scrapedArticles.map(article => {
-        const articleRef = doc(articlesCollection, article.id);
-        return setDoc(articleRef, {
-            title: article.title,
-            url: article.url,
-            content: article.content,
+      if (scrapedArticles.length > 0) {
+        const articlesCollection = collection(db, 'articles');
+        const dbPromises = scrapedArticles.map(article => {
+          // Use a simple hash of the URL or the last part of the URL as ID
+          const docId = article.id || article.url.replace(/[^a-zA-Z0-9]/g, '');
+          const articleRef = doc(articlesCollection, docId);
+          return setDoc(articleRef, {
+              title: article.title,
+              url: article.url,
+              content: article.content,
+          });
         });
-      });
-      await Promise.all(dbPromises);
+        await Promise.all(dbPromises);
+        toast({
+          title: "Success",
+          description: `${scrapedArticles.length} articles have been scraped and saved.`,
+        });
+      }
       
     } catch (error) {
       console.error("Scraping failed:", error);
@@ -82,8 +90,8 @@ export default function Home() {
               Scrape Articles from the Web
             </h2>
             <p className="mt-4 text-muted-foreground md:text-xl">
-              Our platform scrapes articles from the Shriram Finance website and
-              stores them in your database.
+              Click the button to scrape the latest 10 articles from Shriram Finance 
+              and store them in your database.
             </p>
             <Button
               size="lg"
@@ -111,7 +119,7 @@ export default function Home() {
                 <CardContent>
                   {isLoading ? (
                     <div className="space-y-4">
-                      {[...Array(5)].map((_, i) => (
+                      {[...Array(10)].map((_, i) => (
                         <Skeleton key={i} className="h-8 w-full" />
                       ))}
                     </div>
@@ -134,7 +142,7 @@ export default function Home() {
                                         rel="noopener noreferrer"
                                         className="hover:underline hover:text-primary"
                                     >
-                                        {article.url}
+                                        {article.title}
                                     </a>
                                     </li>
                                 ))}
