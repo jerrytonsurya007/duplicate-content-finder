@@ -45,9 +45,12 @@ const scrapeArticlesFlow = ai.defineFlow(
 
     const articlePromises: Promise<Article | null>[] = [];
     // This selector is specific to the structure of shriramfinance.in
-    $('.trending-box a').each((i, el) => {
-      if (i >= 10) return false; // Stop after 10 articles
-      
+    const articleLinks = $('.trending-box a');
+    
+    // Get the last 10 articles
+    const last10ArticleLinks = articleLinks.slice(-10);
+
+    last10ArticleLinks.each((i, el) => {
       const articleUrl = $(el).attr('href');
       if (articleUrl) {
         const fullUrl = articleUrl.startsWith('http') ? articleUrl : `${baseUrl}${articleUrl}`;
