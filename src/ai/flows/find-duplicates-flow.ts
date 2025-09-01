@@ -56,7 +56,7 @@ Review the following list of articles:
   URL: {{{this.url}}}
 {{/each}}
 
-Based on your analysis, group together articles that seem to be about the same topic or are very similar. For each group, provide a brief reason for the grouping.
+Based on your analysis, group together articles that seem to be about the same topic or are very similar. For each group, provide a brief reason for the grouping. If there are no duplicates, return an empty array for duplicateGroups.
 
 Please provide your response in the requested JSON format.
 `,
@@ -82,5 +82,3 @@ const findDuplicatesFlow = ai.defineFlow(
 export async function findDuplicates(): Promise<DuplicateAnalysisResult> {
   return findDuplicatesFlow();
 }
-
-    

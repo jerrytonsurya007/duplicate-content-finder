@@ -53,6 +53,7 @@ export default function Home() {
     isStopping.current = false;
 
     try {
+      await clearArticles(); // Clear previous data before starting
       const urlsToScrape = await getArticleUrls();
       setTotalUrls(urlsToScrape.length);
 
@@ -93,7 +94,6 @@ export default function Home() {
       });
     } finally {
       setIsScraping(false);
-      isStopping.current = false;
     }
   };
 
@@ -122,6 +122,7 @@ export default function Home() {
 
   const handleStopScraping = () => {
     isStopping.current = true;
+    setIsScraping(false);
   };
 
   const handleClearDatabase = async () => {
@@ -157,7 +158,7 @@ export default function Home() {
   };
 
   const progress = totalUrls > 0 ? (scrapedUrls.length / totalUrls) * 100 : 0;
-  const isComplete = !isScraping && hasStarted && progress === 100;
+  const canAnalyze = hasStarted && !isScraping;
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -270,10 +271,10 @@ export default function Home() {
                   </div>
                 </CardContent>
                 <CardFooter className="flex-col gap-4">
-                  {isComplete && (
+                  {canAnalyze && (
                     <Button
                       onClick={handleAnalyzeContent}
-                      disabled={isAnalyzing || isScraping}
+                      disabled={isAnalyzing || scrapedUrls.length === 0}
                       className="w-full"
                     >
                       {isAnalyzing ? (
@@ -329,37 +330,43 @@ export default function Home() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    {analysisResult.duplicateGroups.map((group, index) => (
-                      <div
-                        key={index}
-                        className="rounded-lg border bg-background p-4"
-                      >
-                        <h4 className="font-semibold">Group {index + 1}</h4>
-                        <p className="mt-2 text-sm text-muted-foreground italic">
-                          {group.reason}
-                        </p>
-                        <ul className="mt-3 space-y-2">
-                          {group.articles.map((article) => (
-                            <li
-                              key={article.url}
-                              className="text-sm flex items-start gap-2"
-                            >
-                              <LinkIcon className="h-4 w-4 flex-shrink-0 mt-1" />
-                              <div>
-                                <a
-                                  href={article.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="font-medium hover:underline hover:text-primary"
-                                >
-                                  {article.title}
-                                </a>
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ))}
+                    {analysisResult.duplicateGroups.length > 0 ? (
+                      analysisResult.duplicateGroups.map((group, index) => (
+                        <div
+                          key={index}
+                          className="rounded-lg border bg-background p-4"
+                        >
+                          <h4 className="font-semibold">Group {index + 1}</h4>
+                          <p className="mt-2 text-sm text-muted-foreground italic">
+                            {group.reason}
+                          </p>
+                          <ul className="mt-3 space-y-2">
+                            {group.articles.map((article) => (
+                              <li
+                                key={article.url}
+                                className="text-sm flex items-start gap-2"
+                              >
+                                <LinkIcon className="h-4 w-4 flex-shrink-0 mt-1" />
+                                <div>
+                                  <a
+                                    href={article.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="font-medium hover:underline hover:text-primary"
+                                  >
+                                    {article.title}
+                                  </a>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-center text-muted-foreground">
+                        No duplicate or heavily related articles were found.
+                      </p>
+                    )}
                   </CardContent>
                 </Card>
               )}
@@ -370,5 +377,3 @@ export default function Home() {
     </div>
   );
 }
-
-    
