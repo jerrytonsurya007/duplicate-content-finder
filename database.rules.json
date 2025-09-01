@@ -5,9 +5,9 @@
       ".write": "auth != null",
       "$articleId": {
         ".validate": "newData.hasChildren(['title', 'url', 'content'])",
-        "title": { ".validate": "newData.isString()" },
+        "title": { ".validate": "newData.isString() && newData.val().length > 0" },
         "url": { ".validate": "newData.isString() && newData.val().contains('https://')" },
-        "content": { ".validate": "newData.isString()" }
+        "content": { ".validate": "newData.isString() && newData.val().length > 0" }
       }
     }
   }
