@@ -59,10 +59,7 @@ const scrapeArticlesFlow = ai.defineFlow(
       .get()
       .filter(url => url.includes('/articles/'));
 
-    // Get the last 10 article URLs
-    const last10ArticleUrls = articleUrls.slice(-10);
-
-    for (const articleUrl of last10ArticleUrls) {
+    for (const articleUrl of articleUrls) {
       const promise = (async (): Promise<Article | null> => {
         try {
           const details = await getArticleDetails(articleUrl);

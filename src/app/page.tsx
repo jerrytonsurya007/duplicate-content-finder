@@ -90,7 +90,7 @@ export default function Home() {
               Scrape Articles from the Web
             </h2>
             <p className="mt-4 text-muted-foreground md:text-xl">
-              Click the button to scrape the latest 10 articles from Shriram Finance 
+              Click the button to scrape all articles from the Shriram Finance sitemap 
               and store them in your database.
             </p>
             <Button
