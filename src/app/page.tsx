@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { AnalysisResult, Article } from "@/lib/types";
-import { performAnalysis, scrape } from "@/app/actions";
+import type { Article } from "@/lib/types";
+import { scrape } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -11,23 +11,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
-import { Slider } from "@/components/ui/slider";
-import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
   FileText,
   Link as LinkIcon,
   Newspaper,
-  SlidersHorizontal,
   Sparkles,
-  AlertCircle,
   CheckCircle2,
 } from "lucide-react";
 import { db } from "@/lib/firebase";
@@ -35,28 +25,22 @@ import { collection, doc, setDoc } from "firebase/firestore";
 
 export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState("Scraping Articles...");
   const [articles, setArticles] = useState<Article[] | null>(null);
-  const [results, setResults] = useState<AnalysisResult[] | null>(null);
   const [searched, setSearched] = useState(false);
-  const [threshold, setThreshold] = useState(50);
   const { toast } = useToast();
 
-  const handleAnalyze = async () => {
+  const handleScrape = async () => {
     setIsLoading(true);
     setSearched(true);
-    setResults(null);
     setArticles(null);
     try {
       // 1. Scrape articles
-      setLoadingMessage("Scraping articles...");
-      const articles = await scrape();
-      setArticles(articles);
+      const scrapedArticles = await scrape();
+      setArticles(scrapedArticles);
 
       // 2. Store in Firebase
-      setLoadingMessage("Storing articles in database...");
       const articlesCollection = collection(db, 'articles');
-      const dbPromises = articles.map(article => {
+      const dbPromises = scrapedArticles.map(article => {
         const articleRef = doc(articlesCollection, article.id);
         return setDoc(articleRef, {
             title: article.title,
@@ -66,26 +50,17 @@ export default function Home() {
       });
       await Promise.all(dbPromises);
       
-      // 3. Perform analysis
-      setLoadingMessage("Analyzing for duplicates...");
-      const analysisResults = await performAnalysis(articles);
-      setResults(analysisResults);
     } catch (error) {
-      console.error("Analysis failed:", error);
+      console.error("Scraping failed:", error);
       toast({
         variant: "destructive",
-        title: "Analysis Failed",
-        description: "Could not analyze articles. Please try again later.",
+        title: "Scraping Failed",
+        description: "Could not scrape articles. Please try again later.",
       });
     } finally {
       setIsLoading(false);
     }
   };
-
-  const filteredResults =
-    results?.filter(
-      (result) => result.similarityScore * 100 >= threshold
-    ) || [];
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -104,167 +79,55 @@ export default function Home() {
         <div className="container mx-auto px-4 py-8 md:px-6 md:py-12">
           <div className="mx-auto max-w-4xl text-center">
             <h2 className="font-headline text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl">
-              Detect Duplicate Content with AI
+              Scrape Articles from the Web
             </h2>
             <p className="mt-4 text-muted-foreground md:text-xl">
-              Our platform scrapes articles from the Shriram Finance website and leverages
-              Gemini to analyze content similarity, helping you identify
-              potential duplicates effortlessly.
+              Our platform scrapes articles from the Shriram Finance website and
+              stores them in your database.
             </p>
             <Button
               size="lg"
               className="mt-8"
-              onClick={handleAnalyze}
+              onClick={handleScrape}
               disabled={isLoading}
             >
               <Sparkles className="mr-2 h-5 w-5" />
-              {isLoading ? loadingMessage : "Scrape & Analyze Articles"}
+              {isLoading ? "Scraping Articles..." : "Scrape Articles"}
             </Button>
           </div>
 
-          {(isLoading || (searched && results)) && (
-            <div className="mx-auto mt-12 max-w-6xl">
+          {(isLoading || (searched && articles)) && (
+            <div className="mx-auto mt-12 max-w-4xl">
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <FileText />
-                    Analysis Report
+                    Scraped Articles
                   </CardTitle>
                   <CardDescription>
-                    Review pairs of articles with potential content overlap.
+                    The following articles were scraped and saved to your database.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   {isLoading ? (
-                    <div className="space-y-6">
-                      {[...Array(3)].map((_, i) => (
-                        <div key={i} className="space-y-4 rounded-lg border p-4">
-                          <div className="flex justify-between">
-                            <Skeleton className="h-5 w-3/5" />
-                            <Skeleton className="h-5 w-1/5" />
-                          </div>
-                          <Skeleton className="h-4 w-full" />
-                          <Skeleton className="h-8 w-full" />
-                        </div>
+                    <div className="space-y-4">
+                      {[...Array(5)].map((_, i) => (
+                        <Skeleton key={i} className="h-8 w-full" />
                       ))}
                     </div>
                   ) : (
-                    results && (
-                      <div className="space-y-8">
+                    articles && (
                         <div className="space-y-4">
-                          <h3 className="flex items-center gap-2 font-semibold">
-                            <SlidersHorizontal />
-                            Filter by Similarity
-                          </h3>
-                          <div className="flex items-center gap-4">
-                            <Slider
-                              value={[threshold]}
-                              onValueChange={(value) => setThreshold(value[0])}
-                              max={100}
-                              step={1}
-                              className="w-full"
-                            />
-                            <span className="w-20 text-center font-mono text-lg font-semibold">
-                              {threshold}%
-                            </span>
-                          </div>
-                        </div>
-
-                        {filteredResults.length > 0 ? (
-                          <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2">
-                            {filteredResults.map((result, index) => (
-                              <Card key={index} className="flex flex-col">
-                                <CardHeader>
-                                  <div className="flex items-start justify-between gap-4">
-                                    <CardTitle className="text-lg">
-                                      High Similarity Detected
-                                    </CardTitle>
-                                    <div className="flex h-8 w-20 items-center justify-center rounded-full bg-primary/10">
-                                      <span className="font-mono text-lg font-semibold text-primary">
-                                        {(
-                                          result.similarityScore * 100
-                                        ).toFixed(0)}
-                                        %
-                                      </span>
-                                    </div>
-                                  </div>
-                                </CardHeader>
-                                <CardContent className="flex-1 space-y-4">
-                                  <div className="space-y-1">
-                                    <p className="font-semibold text-sm">
-                                      Article 1:
-                                    </p>
-                                    <a
-                                      href={result.article1.url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="group flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors"
-                                    >
-                                      <LinkIcon className="h-4 w-4" />
-                                      <span className="truncate group-hover:underline">
-                                        {result.article1.title}
-                                      </span>
-                                    </a>
-                                  </div>
-                                  <div className="space-y-1">
-                                    <p className="font-semibold text-sm">
-                                      Article 2:
-                                    </p>
-                                    <a
-                                      href={result.article2.url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="group flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors"
-                                    >
-                                      <LinkIcon className="h-4 w-4" />
-                                      <span className="truncate group-hover:underline">
-                                        {result.article2.title}
-                                      </span>
-                                    </a>
-                                  </div>
-                                  <div>
-                                    <p className="font-semibold text-sm mb-2">Similarity Score:</p>
-                                    <Progress
-                                      value={result.similarityScore * 100}
-                                    />
-                                  </div>
-
-                                  <Accordion type="single" collapsible>
-                                    <AccordionItem value="item-1">
-                                      <AccordionTrigger>
-                                        AI Reasoning
-                                      </AccordionTrigger>
-                                      <AccordionContent>
-                                        {result.reason}
-                                      </AccordionContent>
-                                    </AccordionItem>
-                                  </Accordion>
-                                </CardContent>
-                              </Card>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="rounded-lg border-2 border-dashed p-8 text-center">
-                            <div className="flex flex-col items-center justify-center">
-                                <AlertCircle className="mx-auto h-12 w-12 text-muted-foreground" />
-                                <h3 className="mt-4 text-xl font-semibold">
-                                No Duplicates Found
-                                </h3>
-                                <p className="mt-2 text-muted-foreground">
-                                No results match the current similarity
-                                threshold. Try lowering the filter value.
-                                </p>
-                            </div>
-
-                            {articles && articles.length > 0 && (
-                            <div className="mt-8 text-left">
-                                <h4 className="flex items-center gap-2 font-semibold mb-4">
+                            {articles.length > 0 ? (
+                            <div className="space-y-3">
+                                <h4 className="flex items-center gap-2 font-semibold">
                                 <CheckCircle2 className="h-5 w-5 text-green-500" />
-                                Analyzed {articles.length} Articles
+                                Scraped {articles.length} Articles
                                 </h4>
-                                <ul className="space-y-2 max-h-60 overflow-y-auto rounded-md bg-muted/50 p-4">
+                                <ul className="space-y-2 max-h-[400px] overflow-y-auto rounded-md border bg-muted/50 p-4">
                                 {articles.map((article) => (
-                                    <li key={article.id} className="text-sm text-muted-foreground truncate">
+                                    <li key={article.id} className="text-sm text-muted-foreground truncate flex items-center gap-2">
+                                     <LinkIcon className="h-4 w-4 flex-shrink-0" />
                                     <a
                                         href={article.url}
                                         target="_blank"
@@ -277,10 +140,10 @@ export default function Home() {
                                 ))}
                                 </ul>
                             </div>
+                            ) : (
+                            <p className="text-center text-muted-foreground">No articles were found at the source URL.</p>
                             )}
-                          </div>
-                        )}
-                      </div>
+                        </div>
                     )
                   )}
                 </CardContent>
