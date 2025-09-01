@@ -28,6 +28,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   AlertCircle,
+  CheckCircle2,
 } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, doc, setDoc } from "firebase/firestore";
@@ -35,6 +36,7 @@ import { collection, doc, setDoc } from "firebase/firestore";
 export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState("Scraping Articles...");
+  const [articles, setArticles] = useState<Article[] | null>(null);
   const [results, setResults] = useState<AnalysisResult[] | null>(null);
   const [searched, setSearched] = useState(false);
   const [threshold, setThreshold] = useState(50);
@@ -44,10 +46,12 @@ export default function Home() {
     setIsLoading(true);
     setSearched(true);
     setResults(null);
+    setArticles(null);
     try {
       // 1. Scrape articles
       setLoadingMessage("Scraping articles...");
       const articles = await scrape();
+      setArticles(articles);
 
       // 2. Store in Firebase
       setLoadingMessage("Storing articles in database...");
@@ -240,15 +244,40 @@ export default function Home() {
                             ))}
                           </div>
                         ) : (
-                          <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-12 text-center">
-                            <AlertCircle className="mx-auto h-12 w-12 text-muted-foreground" />
-                            <h3 className="mt-4 text-xl font-semibold">
-                              No Duplicates Found
-                            </h3>
-                            <p className="mt-2 text-muted-foreground">
-                              No results match the current similarity
-                              threshold. Try lowering the filter value.
-                            </p>
+                          <div className="rounded-lg border-2 border-dashed p-8 text-center">
+                            <div className="flex flex-col items-center justify-center">
+                                <AlertCircle className="mx-auto h-12 w-12 text-muted-foreground" />
+                                <h3 className="mt-4 text-xl font-semibold">
+                                No Duplicates Found
+                                </h3>
+                                <p className="mt-2 text-muted-foreground">
+                                No results match the current similarity
+                                threshold. Try lowering the filter value.
+                                </p>
+                            </div>
+
+                            {articles && articles.length > 0 && (
+                            <div className="mt-8 text-left">
+                                <h4 className="flex items-center gap-2 font-semibold mb-4">
+                                <CheckCircle2 className="h-5 w-5 text-green-500" />
+                                Analyzed {articles.length} Articles
+                                </h4>
+                                <ul className="space-y-2 max-h-60 overflow-y-auto rounded-md bg-muted/50 p-4">
+                                {articles.map((article) => (
+                                    <li key={article.id} className="text-sm text-muted-foreground truncate">
+                                    <a
+                                        href={article.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="hover:underline hover:text-primary"
+                                    >
+                                        {article.url}
+                                    </a>
+                                    </li>
+                                ))}
+                                </ul>
+                            </div>
+                            )}
                           </div>
                         )}
                       </div>
