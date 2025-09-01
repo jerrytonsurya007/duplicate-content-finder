@@ -63,7 +63,7 @@ export default function Home() {
       toast({
         variant: "destructive",
         title: "Scraping Failed",
-        description: "Could not scrape articles. Please try again later.",
+        description: "Could not scrape articles. Please check the URL and selectors.",
       });
     } finally {
       setIsLoading(false);
@@ -149,7 +149,7 @@ export default function Home() {
                                 </ul>
                             </div>
                             ) : (
-                            <p className="text-center text-muted-foreground">No articles were found at the source URL.</p>
+                            <p className="text-center text-muted-foreground">No articles were found. Please check the source URL and selectors in the code.</p>
                             )}
                         </div>
                     )

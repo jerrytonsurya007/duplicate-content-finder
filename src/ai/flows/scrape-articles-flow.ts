@@ -25,7 +25,7 @@ async function getArticleContent(url: string): Promise<string> {
   const html = await response.text();
   const $ = cheerio.load(html);
   // This selector is specific to the structure of shriramfinance.in articles
-  const content = $('.blog-details-content-main').text().trim();
+  const content = $('.blog-details-padding').text().trim();
   return content;
 }
 
@@ -37,7 +37,7 @@ const scrapeArticlesFlow = ai.defineFlow(
   },
   async () => {
     const baseUrl = 'https://www.shriramfinance.in';
-    const archiveUrl = `${baseUrl}/article`;
+    const archiveUrl = `${baseUrl}/articles`;
 
     const response = await fetch(archiveUrl);
     const html = await response.text();
@@ -45,7 +45,7 @@ const scrapeArticlesFlow = ai.defineFlow(
 
     const articlePromises: Promise<Article | null>[] = [];
     // This selector is specific to the structure of shriramfinance.in
-    $('.all-blogs-main-top-content-left-card-bottom a').each((i, el) => {
+    $('.trending-box a').each((i, el) => {
       if (i >= 10) return false; // Stop after 10 articles
       
       const articleUrl = $(el).attr('href');
