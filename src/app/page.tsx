@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -19,6 +20,7 @@ import {
   Newspaper,
   Sparkles,
   CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, doc, setDoc } from "firebase/firestore";
@@ -27,22 +29,30 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [articles, setArticles] = useState<Article[] | null>(null);
   const [searched, setSearched] = useState(false);
+  const [sitemapUrl, setSitemapUrl] = useState(
+    "https://www.shriramfinance.in/resources.xml"
+  );
   const { toast } = useToast();
 
   const handleScrape = async () => {
+    if (!sitemapUrl) {
+      toast({
+        variant: "destructive",
+        title: "Validation Error",
+        description: "Please enter a valid XML sitemap URL.",
+      });
+      return;
+    }
     setIsLoading(true);
     setSearched(true);
     setArticles(null);
     try {
-      // 1. Scrape articles
-      const scrapedArticles = await scrape();
+      const scrapedArticles = await scrape(sitemapUrl);
       setArticles(scrapedArticles);
 
-      // 2. Store in Firebase
       if (scrapedArticles.length > 0) {
         const articlesCollection = collection(db, 'articles');
         const dbPromises = scrapedArticles.map(article => {
-          // Use a simple hash of the URL or the last part of the URL as ID
           const docId = article.id || article.url.replace(/[^a-zA-Z0-9]/g, '');
           const articleRef = doc(articlesCollection, docId);
           return setDoc(articleRef, {
@@ -63,8 +73,9 @@ export default function Home() {
       toast({
         variant: "destructive",
         title: "Scraping Failed",
-        description: "Could not scrape articles. Please check the URL and selectors.",
+        description: "Could not scrape articles. Please check the sitemap URL and its structure.",
       });
+      setArticles([]);
     } finally {
       setIsLoading(false);
     }
@@ -87,21 +98,28 @@ export default function Home() {
         <div className="container mx-auto px-4 py-8 md:px-6 md:py-12">
           <div className="mx-auto max-w-4xl text-center">
             <h2 className="font-headline text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl">
-              Scrape Articles from the Web
+              Scrape Articles from any Sitemap
             </h2>
             <p className="mt-4 text-muted-foreground md:text-xl">
-              Click the button to scrape all articles from the Shriram Finance sitemap 
-              and store them in your database.
+              Enter the URL of an XML sitemap to scrape all the articles it contains.
             </p>
-            <Button
-              size="lg"
-              className="mt-8"
-              onClick={handleScrape}
-              disabled={isLoading}
-            >
-              <Sparkles className="mr-2 h-5 w-5" />
-              {isLoading ? "Scraping Articles..." : "Scrape Articles"}
-            </Button>
+            <div className="mt-8 flex w-full max-w-2xl mx-auto items-center space-x-2">
+              <Input
+                type="url"
+                placeholder="https://example.com/sitemap.xml"
+                value={sitemapUrl}
+                onChange={(e) => setSitemapUrl(e.target.value)}
+                className="flex-1"
+                disabled={isLoading}
+              />
+              <Button
+                onClick={handleScrape}
+                disabled={isLoading}
+              >
+                <Sparkles className="mr-2 h-5 w-5" />
+                {isLoading ? "Scraping..." : "Scrape Articles"}
+              </Button>
+            </div>
           </div>
 
           {(isLoading || (searched && articles)) && (
@@ -113,7 +131,7 @@ export default function Home() {
                     Scraped Articles
                   </CardTitle>
                   <CardDescription>
-                    The following articles were scraped and saved to your database.
+                    {isLoading ? "Scraping in progress..." : `Found ${articles?.length || 0} articles.`}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -130,7 +148,7 @@ export default function Home() {
                             <div className="space-y-3">
                                 <h4 className="flex items-center gap-2 font-semibold">
                                 <CheckCircle2 className="h-5 w-5 text-green-500" />
-                                Scraped {articles.length} Articles
+                                Scraped and Saved {articles.length} Articles
                                 </h4>
                                 <ul className="space-y-2 max-h-[400px] overflow-y-auto rounded-md border bg-muted/50 p-4">
                                 {articles.map((article) => (
@@ -149,7 +167,10 @@ export default function Home() {
                                 </ul>
                             </div>
                             ) : (
-                            <p className="text-center text-muted-foreground">No articles were found. Please check the source URL and selectors in the code.</p>
+                            <div className="text-center text-muted-foreground flex flex-col items-center gap-4">
+                               <AlertCircle className="h-10 w-10 text-destructive" />
+                               <p>No articles were found at the provided URL. Please check the URL and ensure it's a valid sitemap containing article links.</p>
+                            </div>
                             )}
                         </div>
                     )
