@@ -1,6 +1,19 @@
 import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          {
+            key: 'Permissions-Policy',
+            value: 'hid=()',
+          },
+        ],
+      },
+    ];
+  },
   /* config options here */
   typescript: {
     ignoreBuildErrors: true,
@@ -23,9 +36,6 @@ const nextConfig: NextConfig = {
         pathname: '/**',
       },
     ],
-  },
-  experimental: {
-    serverComponentsExternalPackages: ['firebase-admin'],
   },
 };
 
