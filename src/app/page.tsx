@@ -29,8 +29,8 @@ import {
   Sparkles,
   AlertCircle,
 } from "lucide-react";
-import { database } from "@/lib/firebase";
-import { ref, set } from "firebase/database";
+import { db } from "@/lib/firebase";
+import { collection, doc, setDoc } from "firebase/firestore";
 
 export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
@@ -51,9 +51,10 @@ export default function Home() {
 
       // 2. Store in Firebase
       setLoadingMessage("Storing articles in database...");
+      const articlesCollection = collection(db, 'articles');
       const dbPromises = articles.map(article => {
-        const articleRef = ref(database, 'articles/' + article.id);
-        return set(articleRef, {
+        const articleRef = doc(articlesCollection, article.id);
+        return setDoc(articleRef, {
             title: article.title,
             url: article.url,
             content: article.content,

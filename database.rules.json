@@ -1,14 +1,6 @@
 {
   "rules": {
-    "articles": {
-      ".read": "auth != null",
-      ".write": "auth != null",
-      "$articleId": {
-        ".validate": "newData.hasChildren(['title', 'url', 'content'])",
-        "title": { ".validate": "newData.isString() && newData.val().length > 0" },
-        "url": { ".validate": "newData.isString() && newData.val().contains('https://')" },
-        "content": { ".validate": "newData.isString() && newData.val().length > 0" }
-      }
-    }
+    ".read": false,
+    ".write": false
   }
 }
