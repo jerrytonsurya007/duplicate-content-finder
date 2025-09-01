@@ -10,9 +10,12 @@ service cloud.firestore {
       // Anyone can write, but they MUST provide title, url, and content.
       // In a real application, you would restrict this to authenticated users
       // with: allow write: if request.auth != null && ...
-      allow write: if request.resource.data.title is string &&
+      allow create: if request.resource.data.title is string &&
                       request.resource.data.url is string &&
                       request.resource.data.content is string;
+
+      // Anyone can delete documents from this collection.
+      allow delete: if true;
     }
     
     // Deny all other access to prevent unauthorized writes
