@@ -81,7 +81,7 @@ export default function Home() {
               Detect Duplicate Content with AI
             </h2>
             <p className="mt-4 text-muted-foreground md:text-xl">
-              Our platform scrapes articles from specified sources and leverages
+              Our platform scrapes articles from the Shriram Finance website and leverages
               Gemini to analyze content similarity, helping you identify
               potential duplicates effortlessly.
             </p>

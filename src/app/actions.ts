@@ -1,11 +1,17 @@
 "use server";
 
 import { analyzeArticleSimilarity } from "@/ai/flows/analyze-article-similarity";
-import { mockArticles } from "@/lib/mock-articles";
+import { scrapeAndStoreArticles } from "@/ai/flows/scrape-articles-flow";
 import type { AnalysisResult, Article } from "@/lib/types";
 
 export async function performAnalysis(): Promise<AnalysisResult[]> {
-  const articles = mockArticles;
+  const articles = await scrapeAndStoreArticles();
+
+  if (articles.length < 2) {
+    // Not enough articles to compare
+    return [];
+  }
+  
   const articlePairs: [Article, Article][] = [];
 
   // Create unique pairs of articles
