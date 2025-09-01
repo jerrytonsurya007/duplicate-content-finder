@@ -2,7 +2,7 @@
 
 import * as cheerio from 'cheerio';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, getDocs, deleteDoc, doc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, deleteDoc, doc, query, limit, getDocsFromServer } from 'firebase/firestore';
 import { articleUrls } from '@/lib/article-urls';
 
 async function scrapeArticleContent(
@@ -81,3 +81,18 @@ export async function clearArticles(): Promise<{ success: boolean; error?: strin
 export async function getArticleUrls(): Promise<string[]> {
   return Promise.resolve(articleUrls);
 }
+
+export async function getScrapedArticles(): Promise<{ title: string; url: string }[]> {
+  const articlesCollection = collection(db, 'articles');
+  const articlesSnapshot = await getDocsFromServer(articlesCollection);
+  const articles = articlesSnapshot.docs.map(doc => {
+    const data = doc.data();
+    return {
+      title: data.title,
+      url: data.url,
+    };
+  });
+  return articles;
+}
+
+    

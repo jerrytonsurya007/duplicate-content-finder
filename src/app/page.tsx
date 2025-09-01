@@ -6,6 +6,7 @@ import {
   getArticleUrls,
   clearArticles,
 } from "@/app/actions";
+import { findDuplicates } from "@/ai/flows/find-duplicates-flow";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -26,12 +27,17 @@ import {
   Loader2,
   Trash2,
   XCircle,
+  Lightbulb,
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
+import { DuplicateAnalysisResult } from "@/ai/flows/find-duplicates-flow";
 
 export default function Home() {
   const [isScraping, setIsScraping] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisResult, setAnalysisResult] =
+    useState<DuplicateAnalysisResult | null>(null);
   const [scrapedUrls, setScrapedUrls] = useState<string[]>([]);
   const [totalUrls, setTotalUrls] = useState(0);
   const [hasStarted, setHasStarted] = useState(false);
@@ -43,6 +49,7 @@ export default function Home() {
     setIsScraping(true);
     setHasStarted(true);
     setScrapedUrls([]);
+    setAnalysisResult(null);
     isStopping.current = false;
 
     try {
@@ -90,6 +97,29 @@ export default function Home() {
     }
   };
 
+  const handleAnalyzeContent = async () => {
+    setIsAnalyzing(true);
+    setAnalysisResult(null);
+    try {
+      const result = await findDuplicates();
+      setAnalysisResult(result);
+      toast({
+        title: "Analysis Complete",
+        description: "Duplicate content analysis is finished.",
+      });
+    } catch (error: any) {
+      console.error("Duplicate analysis failed:", error);
+      toast({
+        variant: "destructive",
+        title: "Analysis Failed",
+        description:
+          "Could not analyze content for duplicates. " + error.message,
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   const handleStopScraping = () => {
     isStopping.current = true;
   };
@@ -107,6 +137,7 @@ export default function Home() {
         setScrapedUrls([]);
         setTotalUrls(0);
         setHasStarted(false);
+        setAnalysisResult(null);
       } else {
         toast({
           variant: "destructive",
@@ -126,6 +157,7 @@ export default function Home() {
   };
 
   const progress = totalUrls > 0 ? (scrapedUrls.length / totalUrls) * 100 : 0;
+  const isComplete = !isScraping && hasStarted && progress === 100;
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -183,7 +215,7 @@ export default function Home() {
           </div>
 
           {hasStarted && (
-            <div className="mx-auto mt-12 max-w-4xl">
+            <div className="mx-auto mt-12 max-w-4xl space-y-8">
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -227,19 +259,39 @@ export default function Home() {
                         </ul>
                       </div>
                     ) : !isScraping && hasStarted ? (
-                        <div className="text-center text-muted-foreground flex flex-col items-center gap-4 pt-4">
-                          <AlertCircle className="h-10 w-10 text-destructive" />
-                          <p>
-                            No articles were scraped. Please check the URL list and website structure.
-                          </p>
-                        </div>
-                      ) : null}
+                      <div className="text-center text-muted-foreground flex flex-col items-center gap-4 pt-4">
+                        <AlertCircle className="h-10 w-10 text-destructive" />
+                        <p>
+                          No articles were scraped. Please check the URL list
+                          and website structure.
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
                 </CardContent>
-                <CardFooter>
+                <CardFooter className="flex-col gap-4">
+                  {isComplete && (
+                    <Button
+                      onClick={handleAnalyzeContent}
+                      disabled={isAnalyzing || isScraping}
+                      className="w-full"
+                    >
+                      {isAnalyzing ? (
+                        <>
+                          <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                          Analyzing Content...
+                        </>
+                      ) : (
+                        <>
+                          <Lightbulb className="mr-2 h-5 w-5" />
+                          Analyze for Duplicates
+                        </>
+                      )}
+                    </Button>
+                  )}
                   <Button
                     onClick={handleClearDatabase}
-                    disabled={isClearing || isScraping}
+                    disabled={isClearing || isScraping || isAnalyzing}
                     variant="outline"
                     className="w-full"
                   >
@@ -257,6 +309,60 @@ export default function Home() {
                   </Button>
                 </CardFooter>
               </Card>
+
+              {isAnalyzing && (
+                 <div className="flex items-center justify-center rounded-lg border border-dashed p-12">
+                    <Loader2 className="h-10 w-10 animate-spin text-muted-foreground" />
+                 </div>
+              )}
+
+              {analysisResult && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Lightbulb />
+                      Analysis Results
+                    </CardTitle>
+                    <CardDescription>
+                      The following groups of articles were identified as having
+                      heavily related or duplicate content.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {analysisResult.duplicateGroups.map((group, index) => (
+                      <div
+                        key={index}
+                        className="rounded-lg border bg-background p-4"
+                      >
+                        <h4 className="font-semibold">Group {index + 1}</h4>
+                        <p className="mt-2 text-sm text-muted-foreground italic">
+                          {group.reason}
+                        </p>
+                        <ul className="mt-3 space-y-2">
+                          {group.articles.map((article) => (
+                            <li
+                              key={article.url}
+                              className="text-sm flex items-start gap-2"
+                            >
+                              <LinkIcon className="h-4 w-4 flex-shrink-0 mt-1" />
+                              <div>
+                                <a
+                                  href={article.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="font-medium hover:underline hover:text-primary"
+                                >
+                                  {article.title}
+                                </a>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
             </div>
           )}
         </div>
@@ -264,3 +370,5 @@ export default function Home() {
     </div>
   );
 }
+
+    
