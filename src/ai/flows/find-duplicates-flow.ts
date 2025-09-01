@@ -40,6 +40,7 @@ const PromptInputSchema = z.object({
     articles: z.array(z.object({
         title: z.string(),
         url: z.string().url(),
+        content: z.string(),
     })).describe('A list of all articles to be analyzed.')
 })
 
@@ -48,15 +49,23 @@ const findDuplicatesPrompt = ai.definePrompt({
   name: 'findDuplicatesPrompt',
   input: { schema: PromptInputSchema },
   output: { schema: DuplicateAnalysisResultSchema },
-  prompt: `You are an expert content analyst. Your task is to review a list of article titles and URLs and identify groups of articles that are duplicates or cover heavily related topics.
+  prompt: `You are an expert content analyst. Your task is to review a list of articles, including their titles, URLs, and full content, to identify groups of articles that are duplicates.
+
+An article should be considered a duplicate of another only if it meets one of the following strict criteria:
+1. The titles are identical.
+2. At least one full paragraph of content is identical between the articles.
+
+Analyze the content of each article thoroughly. General topic similarity is NOT enough. You must find exact, word-for-word matches in the title or paragraphs.
 
 Review the following list of articles:
 {{#each articles}}
 - Title: {{{this.title}}}
   URL: {{{this.url}}}
+  Content: {{{this.content}}}
+---
 {{/each}}
 
-Based on your analysis, group together articles that seem to be about the same topic or are very similar. For each group, provide a brief reason for the grouping. If there are no duplicates, return an empty array for duplicateGroups.
+Based on your strict analysis, group together articles that are duplicates. For each group, provide a brief reason for the grouping (e.g., "Identical titles," "Contains identical paragraphs"). If there are no duplicates, return an empty array for duplicateGroups.
 
 Please provide your response in the requested JSON format.
 `,
