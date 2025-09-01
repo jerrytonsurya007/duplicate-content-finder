@@ -1,12 +1,14 @@
 "use server";
 
 import { analyzeArticleSimilarity } from "@/ai/flows/analyze-article-similarity";
-import { scrapeAndStoreArticles } from "@/ai/flows/scrape-articles-flow";
+import { scrapeArticles } from "@/ai/flows/scrape-articles-flow";
 import type { AnalysisResult, Article } from "@/lib/types";
 
-export async function performAnalysis(): Promise<AnalysisResult[]> {
-  const articles = await scrapeAndStoreArticles();
+export async function scrape(): Promise<Article[]> {
+  return await scrapeArticles();
+}
 
+export async function performAnalysis(articles: Article[]): Promise<AnalysisResult[]> {
   if (articles.length < 2) {
     // Not enough articles to compare
     return [];

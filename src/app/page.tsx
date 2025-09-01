@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { AnalysisResult } from "@/lib/types";
-import { performAnalysis } from "@/app/actions";
+import type { AnalysisResult, Article } from "@/lib/types";
+import { performAnalysis, scrape } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -29,9 +29,12 @@ import {
   Sparkles,
   AlertCircle,
 } from "lucide-react";
+import { database } from "@/lib/firebase";
+import { ref, set } from "firebase/database";
 
 export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("Scraping Articles...");
   const [results, setResults] = useState<AnalysisResult[] | null>(null);
   const [searched, setSearched] = useState(false);
   const [threshold, setThreshold] = useState(50);
@@ -42,7 +45,25 @@ export default function Home() {
     setSearched(true);
     setResults(null);
     try {
-      const analysisResults = await performAnalysis();
+      // 1. Scrape articles
+      setLoadingMessage("Scraping articles...");
+      const articles = await scrape();
+
+      // 2. Store in Firebase
+      setLoadingMessage("Storing articles in database...");
+      const dbPromises = articles.map(article => {
+        const articleRef = ref(database, 'articles/' + article.id);
+        return set(articleRef, {
+            title: article.title,
+            url: article.url,
+            content: article.content,
+        });
+      });
+      await Promise.all(dbPromises);
+      
+      // 3. Perform analysis
+      setLoadingMessage("Analyzing for duplicates...");
+      const analysisResults = await performAnalysis(articles);
       setResults(analysisResults);
     } catch (error) {
       console.error("Analysis failed:", error);
@@ -92,7 +113,7 @@ export default function Home() {
               disabled={isLoading}
             >
               <Sparkles className="mr-2 h-5 w-5" />
-              {isLoading ? "Analyzing..." : "Scrape & Analyze Articles"}
+              {isLoading ? loadingMessage : "Scrape & Analyze Articles"}
             </Button>
           </div>
 

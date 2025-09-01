@@ -1,29 +1,15 @@
 'use server';
 
 /**
- * @fileOverview A flow for scraping articles from a website and storing them in Firebase.
+ * @fileOverview A flow for scraping articles from a website.
  *
- * - scrapeAndStoreArticles - A function that scrapes articles, stores them, and returns them.
+ * - scrapeArticles - A function that scrapes articles and returns them.
  */
 
 import { ai } from '@/ai/genkit';
 import { z } from 'genkit';
 import * as cheerio from 'cheerio';
-import { initializeApp, getApp, getApps } from 'firebase-admin/app';
-import { getDatabase } from 'firebase-admin/database';
 import { Article } from '@/lib/types';
-import { credential } from 'firebase-admin';
-
-const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
-  ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
-  : undefined;
-
-if (getApps().length === 0) {
-  initializeApp({
-    credential: serviceAccount ? credential.cert(serviceAccount) : undefined,
-    databaseURL: `https://${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}.firebaseio.com`,
-  });
-}
 
 const ScrapeArticlesOutputSchema = z.array(
   z.object({
@@ -43,9 +29,9 @@ async function getArticleContent(url: string): Promise<string> {
   return content;
 }
 
-const scrapeAndStoreArticlesFlow = ai.defineFlow(
+const scrapeArticlesFlow = ai.defineFlow(
   {
-    name: 'scrapeAndStoreArticlesFlow',
+    name: 'scrapeArticlesFlow',
     inputSchema: z.void(),
     outputSchema: ScrapeArticlesOutputSchema,
   },
@@ -89,26 +75,12 @@ const scrapeAndStoreArticlesFlow = ai.defineFlow(
     const articles = (await Promise.all(articlePromises)).filter(
       (a): a is Article => a !== null && a.content.length > 0
     );
-
-    const db = getDatabase();
-    const ref = db.ref('articles');
-
-    const dbPromises = articles.map(article => {
-        const articleRef = ref.child(article.id);
-        return articleRef.set({
-            title: article.title,
-            url: article.url,
-            content: article.content,
-        });
-    });
-
-    await Promise.all(dbPromises);
     
     return articles;
   }
 );
 
 
-export async function scrapeAndStoreArticles(): Promise<Article[]> {
-    return scrapeAndStoreArticlesFlow();
+export async function scrapeArticles(): Promise<Article[]> {
+    return scrapeArticlesFlow();
 }
