@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import "@/lib/firebase";
 
 export const metadata: Metadata = {
-  title: 'Article Insights',
+  title: 'SFL duplicate content finder',
   description: 'AI-powered duplicate content analysis for articles.',
 };
 
