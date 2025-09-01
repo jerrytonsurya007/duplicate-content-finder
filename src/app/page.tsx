@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Article } from "@/lib/types";
-import { scrape } from "@/app/actions";
+import { getUrlsFromSitemap } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -22,12 +21,10 @@ import {
   CheckCircle2,
   AlertCircle,
 } from "lucide-react";
-import { db } from "@/lib/firebase";
-import { collection, doc, setDoc } from "firebase/firestore";
 
 export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
-  const [articles, setArticles] = useState<Article[] | null>(null);
+  const [urls, setUrls] = useState<string[] | null>(null);
   const [searched, setSearched] = useState(false);
   const [sitemapUrl, setSitemapUrl] = useState(
     "https://www.shriramfinance.in/resources.xml"
@@ -45,37 +42,19 @@ export default function Home() {
     }
     setIsLoading(true);
     setSearched(true);
-    setArticles(null);
+    setUrls(null);
     try {
-      const scrapedArticles = await scrape(sitemapUrl);
-      setArticles(scrapedArticles);
-
-      if (scrapedArticles.length > 0) {
-        const articlesCollection = collection(db, 'articles');
-        const dbPromises = scrapedArticles.map(article => {
-          const docId = article.id || article.url.replace(/[^a-zA-Z0-9]/g, '');
-          const articleRef = doc(articlesCollection, docId);
-          return setDoc(articleRef, {
-              title: article.title,
-              url: article.url,
-              content: article.content,
-          });
-        });
-        await Promise.all(dbPromises);
-        toast({
-          title: "Success",
-          description: `${scrapedArticles.length} articles have been scraped and saved.`,
-        });
-      }
+      const scrapedUrls = await getUrlsFromSitemap(sitemapUrl);
+      setUrls(scrapedUrls);
       
     } catch (error) {
       console.error("Scraping failed:", error);
       toast({
         variant: "destructive",
-        title: "Scraping Failed",
-        description: "Could not scrape articles. Please check the sitemap URL and its structure.",
+        title: "URL Extraction Failed",
+        description: "Could not get URLs from the sitemap. Please check the URL and its structure.",
       });
-      setArticles([]);
+      setUrls([]);
     } finally {
       setIsLoading(false);
     }
@@ -98,10 +77,10 @@ export default function Home() {
         <div className="container mx-auto px-4 py-8 md:px-6 md:py-12">
           <div className="mx-auto max-w-4xl text-center">
             <h2 className="font-headline text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl">
-              Scrape Articles from any Sitemap
+              Extract Article URLs from a Sitemap
             </h2>
             <p className="mt-4 text-muted-foreground md:text-xl">
-              Enter the URL of an XML sitemap to scrape all the articles it contains.
+              Enter the URL of an XML sitemap to extract all the article URLs it contains.
             </p>
             <div className="mt-8 flex w-full max-w-2xl mx-auto items-center space-x-2">
               <Input
@@ -117,21 +96,21 @@ export default function Home() {
                 disabled={isLoading}
               >
                 <Sparkles className="mr-2 h-5 w-5" />
-                {isLoading ? "Scraping..." : "Scrape Articles"}
+                {isLoading ? "Extracting..." : "Extract URLs"}
               </Button>
             </div>
           </div>
 
-          {(isLoading || (searched && articles)) && (
+          {(isLoading || (searched && urls)) && (
             <div className="mx-auto mt-12 max-w-4xl">
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <FileText />
-                    Scraped Articles
+                    Extracted URLs
                   </CardTitle>
                   <CardDescription>
-                    {isLoading ? "Scraping in progress..." : `Found ${articles?.length || 0} articles.`}
+                    {isLoading ? "Extraction in progress..." : `Found ${urls?.length || 0} article URLs.`}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -142,25 +121,25 @@ export default function Home() {
                       ))}
                     </div>
                   ) : (
-                    articles && (
+                    urls && (
                         <div className="space-y-4">
-                            {articles.length > 0 ? (
+                            {urls.length > 0 ? (
                             <div className="space-y-3">
                                 <h4 className="flex items-center gap-2 font-semibold">
                                 <CheckCircle2 className="h-5 w-5 text-green-500" />
-                                Scraped and Saved {articles.length} Articles
+                                 Found {urls.length} Article URLs
                                 </h4>
                                 <ul className="space-y-2 max-h-[400px] overflow-y-auto rounded-md border bg-muted/50 p-4">
-                                {articles.map((article) => (
-                                    <li key={article.id} className="text-sm text-muted-foreground truncate flex items-center gap-2">
+                                {urls.map((url) => (
+                                    <li key={url} className="text-sm text-muted-foreground truncate flex items-center gap-2">
                                      <LinkIcon className="h-4 w-4 flex-shrink-0" />
                                     <a
-                                        href={article.url}
+                                        href={url}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="hover:underline hover:text-primary"
                                     >
-                                        {article.title}
+                                        {url}
                                     </a>
                                     </li>
                                 ))}
@@ -169,7 +148,7 @@ export default function Home() {
                             ) : (
                             <div className="text-center text-muted-foreground flex flex-col items-center gap-4">
                                <AlertCircle className="h-10 w-10 text-destructive" />
-                               <p>No articles were found at the provided URL. Please check the URL and ensure it's a valid sitemap containing article links.</p>
+                               <p>No article URLs were found in the provided sitemap. Please check the URL and ensure it's a valid sitemap containing article links.</p>
                             </div>
                             )}
                         </div>

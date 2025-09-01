@@ -1,8 +1,7 @@
 "use server";
 
-import { scrapeArticles } from "@/ai/flows/scrape-articles-flow";
-import type { Article } from "@/lib/types";
+import { extractArticleUrls } from "@/ai/flows/scrape-articles-flow";
 
-export async function scrape(sitemapUrl: string): Promise<Article[]> {
-  return await scrapeArticles(sitemapUrl);
+export async function getUrlsFromSitemap(sitemapUrl: string): Promise<string[]> {
+  return await extractArticleUrls(sitemapUrl);
 }
