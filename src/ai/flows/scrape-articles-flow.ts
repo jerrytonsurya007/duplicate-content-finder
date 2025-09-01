@@ -7,7 +7,7 @@
  */
 
 import { ai } from '@/ai/genkit';
-import { z } from 'genkit';
+import { z } from 'zod';
 import * as cheerio from 'cheerio';
 import { Article } from '@/lib/types';
 
@@ -20,13 +20,23 @@ const ScrapeArticlesOutputSchema = z.array(
   })
 );
 
-async function getArticleContent(url: string): Promise<string> {
-  const response = await fetch(url);
-  const html = await response.text();
-  const $ = cheerio.load(html);
-  // This selector is specific to the structure of shriramfinance.in articles
-  const content = $('.blog-details-padding').text().trim();
-  return content;
+async function getArticleDetails(url: string): Promise<{ title: string; content: string } | null> {
+  try {
+    const response = await fetch(url);
+    const html = await response.text();
+    const $ = cheerio.load(html);
+    // This selector is specific to the structure of shriramfinance.in articles
+    const title = $('h1').first().text().trim();
+    const content = $('.blog-details-padding').text().trim();
+    
+    if (title && content) {
+      return { title, content };
+    }
+    return null;
+  } catch (e) {
+      console.error(`Failed to get details for ${url}`, e);
+      return null;
+  }
 }
 
 const scrapeArticlesFlow = ai.defineFlow(
@@ -36,47 +46,48 @@ const scrapeArticlesFlow = ai.defineFlow(
     outputSchema: ScrapeArticlesOutputSchema,
   },
   async () => {
-    const baseUrl = 'https://www.shriramfinance.in';
-    const archiveUrl = `${baseUrl}/articles`;
+    const sitemapUrl = 'https://www.shriramfinance.in/resources.xml';
 
-    const response = await fetch(archiveUrl);
-    const html = await response.text();
-    const $ = cheerio.load(html);
+    const response = await fetch(sitemapUrl);
+    const xml = await response.text();
+    const $ = cheerio.load(xml, { xmlMode: true });
 
     const articlePromises: Promise<Article | null>[] = [];
-    // This selector is specific to the structure of shriramfinance.in
-    const articleLinks = $('.trending-box a');
     
-    // Get the last 10 articles
-    const last10ArticleLinks = articleLinks.slice(-10);
+    const articleUrls = $('loc')
+      .map((i, el) => $(el).text())
+      .get()
+      .filter(url => url.includes('/articles/'));
 
-    last10ArticleLinks.each((i, el) => {
-      const articleUrl = $(el).attr('href');
-      if (articleUrl) {
-        const fullUrl = articleUrl.startsWith('http') ? articleUrl : `${baseUrl}${articleUrl}`;
-        const promise = (async (): Promise<Article | null> => {
-          try {
-            const title = $(el).find('h4').text().trim();
-            const id = fullUrl.substring(fullUrl.lastIndexOf('/') + 1) || fullUrl;
-            const content = await getArticleContent(fullUrl);
+    // Get the last 10 article URLs
+    const last10ArticleUrls = articleUrls.slice(-10);
 
-            return {
-              id,
-              title,
-              url: fullUrl,
-              content,
-            };
-          } catch (e) {
-            console.error(`Failed to scrape ${fullUrl}`, e);
-            return null;
+    for (const articleUrl of last10ArticleUrls) {
+      const promise = (async (): Promise<Article | null> => {
+        try {
+          const details = await getArticleDetails(articleUrl);
+          if (!details) {
+              return null;
           }
-        })();
-        articlePromises.push(promise);
-      }
-    });
+
+          const id = articleUrl.substring(articleUrl.lastIndexOf('/') + 1) || articleUrl;
+          
+          return {
+            id,
+            title: details.title,
+            url: articleUrl,
+            content: details.content,
+          };
+        } catch (e) {
+          console.error(`Failed to scrape ${articleUrl}`, e);
+          return null;
+        }
+      })();
+      articlePromises.push(promise);
+    }
 
     const articles = (await Promise.all(articlePromises)).filter(
-      (a): a is Article => a !== null && a.content.length > 0
+      (a): a is Article => a !== null && a.content.length > 0 && a.title.length > 0
     );
     
     return articles;
