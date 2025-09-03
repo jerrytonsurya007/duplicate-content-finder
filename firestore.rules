@@ -7,12 +7,13 @@ service cloud.firestore {
       // Anyone can read the articles
       allow read: if true;
       
-      // Anyone can write, but they MUST provide title, url, and content.
+      // Anyone can create an article, but they MUST provide the required fields.
       // In a real application, you would restrict this to authenticated users
-      // with: allow write: if request.auth != null && ...
-      allow create: if request.resource.data.title is string &&
-                      request.resource.data.url is string &&
-                      request.resource.data.content is string;
+      // with: allow create: if request.auth != null && ...
+      allow create: if request.resource.data.url is string &&
+                       request.resource.data.h1 is string &&
+                       request.resource.data.metaTitle is string &&
+                       request.resource.data.metaDescription is string;
 
       // Anyone can delete documents from this collection.
       allow delete: if true;
