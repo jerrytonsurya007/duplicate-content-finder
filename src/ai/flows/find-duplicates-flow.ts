@@ -126,7 +126,7 @@ const findDuplicatesFlow = ai.defineFlow(
     }
 
     // Process pairs in batches to avoid overwhelming the system
-    const BATCH_SIZE = 10;
+    const BATCH_SIZE = 2;
     for (let i = 0; i < articlePairs.length; i += BATCH_SIZE) {
         const batch = articlePairs.slice(i, i + BATCH_SIZE);
         const batchPromises = batch.map(async (pair) => {
