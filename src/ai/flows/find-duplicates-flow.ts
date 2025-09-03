@@ -1,7 +1,7 @@
 'use server';
 
 /**
- * @fileOverview A flow for finding duplicate or heavily related articles.
+ * @fileOverview A flow for finding duplicate or heavily related articles using a map-reduce strategy.
  *
  * - findDuplicates - Identifies groups of similar articles from Firestore.
  * - DuplicateAnalysisResult - The output type for the findDuplicates function.
@@ -41,41 +41,38 @@ export type DuplicateAnalysisResult = z.infer<
   typeof DuplicateAnalysisResultSchema
 >;
 
-// Define the schema for the prompt that finds duplicates for a *single* article
-const FindDuplicatesForArticleSchema = z.object({
-  articleToCompare: z.object({
+// Define the schema for the prompt that compares *two* articles
+const CompareArticlesSchema = z.object({
+  article1: z.object({
     title: z.string(),
     url: z.string().url(),
     content: z.string(),
   }),
-  allArticles: z
-    .array(
-      z.object({
-        title: z.string(),
-        url: z.string().url(),
-      })
-    )
-    .describe('A list of all other articles to compare against.'),
+  article2: z.object({
+    title: z.string(),
+    url: z.string().url(),
+    content: z.string(),
+  }),
 });
 
-// Define the schema for the output of the single-article comparison
-const FoundDuplicatesSchema = z.object({
-  duplicates: z
-    .array(
-      z.object({
-        title: z.string(),
-        url: z.string().url(),
-        reason: z.string(),
-      })
-    )
-    .describe('A list of articles that are duplicates of the given article.'),
+// Define the schema for the output of the two-article comparison
+const ComparisonResultSchema = z.object({
+  isDuplicate: z
+    .boolean()
+    .describe('Whether the two articles are duplicates.'),
+  reason: z
+    .string()
+    .optional()
+    .describe(
+      'The reason for the duplication, if applicable (e.g., "Identical titles").'
+    ),
 });
 
-const findDuplicatesPrompt = ai.definePrompt({
-  name: 'findDuplicatesForArticlePrompt',
-  input: {schema: FindDuplicatesForArticleSchema},
-  output: {schema: FoundDuplicatesSchema},
-  prompt: `You are an expert content analyst. Your task is to review a given article and identify any duplicates from a list of other articles.
+const compareArticlesPrompt = ai.definePrompt({
+  name: 'compareArticlesPrompt',
+  input: {schema: CompareArticlesSchema},
+  output: {schema: ComparisonResultSchema},
+  prompt: `You are an expert content analyst. Your task is to determine if two articles are duplicates.
 
 An article should be considered a duplicate of another only if it meets one of the following strict criteria:
 1.  The titles are identical.
@@ -83,20 +80,19 @@ An article should be considered a duplicate of another only if it meets one of t
 
 General topic similarity is NOT enough. You must find exact, word-for-word matches in the title or paragraphs.
 
-Analyze the following primary article:
-- Title: {{{articleToCompare.title}}}
-  URL: {{{articleToCompare.url}}}
-  Content: {{{articleToCompare.content}}}
+Analyze the following two articles and determine if they are duplicates based on the strict criteria.
+
+Article 1:
+- Title: {{{article1.title}}}
+- URL: {{{article1.url}}}
+- Content: {{{article1.content}}}
 ---
+Article 2:
+- Title: {{{article2.title}}}
+- URL: {{{article2.url}}}
+- Content: {{{article2.content}}}
 
-Now, compare it against this list of other articles:
-{{#each allArticles}}
-- Title: {{{this.title}}}
-  URL: {{{this.url}}}
-{{/each}}
-
-Identify which articles from the list are duplicates of the primary article based on the strict criteria. For each duplicate you find, provide a brief reason (e.g., "Identical titles," "Contains identical paragraphs"). If there are no duplicates, return an empty array.
-
+If they are duplicates, provide a brief reason. If not, simply state they are not duplicates.
 Please provide your response in the requested JSON format.
 `,
 });
@@ -108,76 +104,83 @@ const findDuplicatesFlow = ai.defineFlow(
   },
   async () => {
     const articles = await getScrapedArticles();
+    const numArticles = articles.length;
 
-    if (articles.length < 2) {
+    if (numArticles < 2) {
       return {duplicateGroups: []};
     }
 
-    const allArticleTitles = articles.map(({title, url}) => ({title, url}));
     const foundPairs = new Map<string, {reason: string; article2: string}>();
-    const allUrls = new Set(articles.map(a => a.url));
-
-    for (const article of articles) {
-      // Don't re-process an article if it's already part of a found pair
-      if (foundPairs.has(article.url)) continue;
-
-      const otherArticles = allArticleTitles.filter(a => a.url !== article.url);
-
-      const {output} = await findDuplicatesPrompt({
-        articleToCompare: article,
-        allArticles: otherArticles,
-      });
-
-      if (output && output.duplicates) {
-        for (const duplicate of output.duplicates) {
-           // Ensure we don't process the same pair twice from different directions
-          if (foundPairs.has(duplicate.url)) continue;
-          
-          // Add the forward relation
-          foundPairs.set(article.url, {
-            reason: duplicate.reason,
-            article2: duplicate.url,
-          });
-          // Add the backward relation to prevent re-processing
-           foundPairs.set(duplicate.url, {
-            reason: duplicate.reason,
-            article2: article.url,
-          });
+    
+    // Create all unique pairs of articles to compare
+    const articlePairs: {article1: (typeof articles)[0], article2: (typeof articles)[0]}[] = [];
+    for (let i = 0; i < numArticles; i++) {
+        for (let j = i + 1; j < numArticles; j++) {
+            articlePairs.push({ article1: articles[i], article2: articles[j] });
         }
-      }
     }
 
-    // Consolidate pairs into groups
-    const consolidatedGroups = new Map<string, Set<string>>();
-    const reasons = new Map<string, string>();
+    // Process pairs in batches to avoid overwhelming the system
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < articlePairs.length; i += BATCH_SIZE) {
+        const batch = articlePairs.slice(i, i + BATCH_SIZE);
+        const batchPromises = batch.map(async (pair) => {
+            const {output} = await compareArticlesPrompt({
+              article1: pair.article1,
+              article2: pair.article2,
+            });
 
-    foundPairs.forEach((value, url1) => {
-      const url2 = value.article2;
-
-      let groupFound = false;
-      consolidatedGroups.forEach((group, key) => {
-        if (group.has(url1) || group.has(url2)) {
-          group.add(url1);
-          group.add(url2);
-          groupFound = true;
-        }
-      });
-
-      if (!groupFound) {
-        const newGroup = new Set([url1, url2]);
-        const groupKey = `${url1}-${url2}`;
-        consolidatedGroups.set(groupKey, newGroup);
-        reasons.set(groupKey, value.reason);
-      }
+            if (output && output.isDuplicate && output.reason) {
+                // Use a canonical key to store the pair to avoid duplicates like (A,B) and (B,A)
+                const key = [pair.article1.url, pair.article2.url].sort().join('|');
+                if (!foundPairs.has(key)) {
+                    foundPairs.set(key, { reason: output.reason, article2: pair.article2.url });
+                }
+            }
+        });
+        await Promise.all(batchPromises);
+    }
+    
+    // Convert the map of pairs into a list of actual pairs for consolidation
+    const finalPairs: {url1: string, url2: string, reason: string}[] = [];
+    foundPairs.forEach((value, key) => {
+        const [url1, url2] = key.split('|');
+        finalPairs.push({url1, url2, reason: value.reason});
     });
+
+
+    // Consolidate pairs into groups
+    const consolidatedGroups = new Map<string, { urls: Set<string>; reason: string }>();
+
+    for (const pair of finalPairs) {
+        let groupFound = false;
+        // Check if either article in the pair already belongs to a group
+        for (const group of consolidatedGroups.values()) {
+            if (group.urls.has(pair.url1) || group.urls.has(pair.url2)) {
+                group.urls.add(pair.url1);
+                group.urls.add(pair.url2);
+                // Optionally, you could append reasons: group.reason += ` | ${pair.reason}`;
+                groupFound = true;
+                break;
+            }
+        }
+        // If no group was found, create a new one
+        if (!groupFound) {
+            const newGroupKey = pair.url1; // Use the first URL as the initial key
+            consolidatedGroups.set(newGroupKey, {
+                urls: new Set([pair.url1, pair.url2]),
+                reason: pair.reason,
+            });
+        }
+    }
 
     const articleMap = new Map(articles.map(a => [a.url, a]));
 
-    const duplicateGroups = Array.from(consolidatedGroups.entries()).map(
-      ([key, urlSet]) => {
+    const duplicateGroups = Array.from(consolidatedGroups.values()).map(
+      (group) => {
         return {
-          reason: reasons.get(key) || 'Found to be a duplicate or heavily related.',
-          articles: Array.from(urlSet)
+          reason: group.reason || 'Found to be a duplicate or heavily related.',
+          articles: Array.from(group.urls)
             .map(url => {
               const article = articleMap.get(url);
               return article
