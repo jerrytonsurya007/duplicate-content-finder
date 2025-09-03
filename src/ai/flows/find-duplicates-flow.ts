@@ -44,14 +44,16 @@ export type DuplicateAnalysisResult = z.infer<
 // Define the schema for the prompt that compares *two* articles
 const CompareArticlesSchema = z.object({
   article1: z.object({
-    title: z.string(),
     url: z.string().url(),
-    content: z.string(),
+    h1: z.string(),
+    metaTitle: z.string(),
+    metaDescription: z.string(),
   }),
   article2: z.object({
-    title: z.string(),
     url: z.string().url(),
-    content: z.string(),
+    h1: z.string(),
+    metaTitle: z.string(),
+    metaDescription: z.string(),
   }),
 });
 
@@ -64,7 +66,7 @@ const ComparisonResultSchema = z.object({
     .string()
     .optional()
     .describe(
-      'The reason for the duplication, if applicable (e.g., "Identical titles").'
+      'The reason for the duplication, if applicable (e.g., "Identical H1 tags").'
     ),
 });
 
@@ -72,25 +74,28 @@ const compareArticlesPrompt = ai.definePrompt({
   name: 'compareArticlesPrompt',
   input: {schema: CompareArticlesSchema},
   output: {schema: ComparisonResultSchema},
-  prompt: `You are an expert content analyst. Your task is to determine if two articles are duplicates.
+  prompt: `You are an expert content analyst. Your task is to determine if two articles are duplicates based on their metadata.
 
 An article should be considered a duplicate of another only if it meets one of the following strict criteria:
-1.  The titles are identical.
-2.  At least one full paragraph of content is identical between the articles.
+1.  The H1 tags are identical.
+2.  The Meta Titles are identical.
+3.  The Meta Descriptions are very similar or identical.
 
-General topic similarity is NOT enough. You must find exact, word-for-word matches in the title or paragraphs.
+General topic similarity is NOT enough. You must find exact, word-for-word matches in the H1 or Meta Title, or strong similarity in the Meta Description.
 
 Analyze the following two articles and determine if they are duplicates based on the strict criteria.
 
 Article 1:
-- Title: {{{article1.title}}}
 - URL: {{{article1.url}}}
-- Content: {{{article1.content}}}
+- H1: {{{article1.h1}}}
+- Meta Title: {{{article1.metaTitle}}}
+- Meta Description: {{{article1.metaDescription}}}
 ---
 Article 2:
-- Title: {{{article2.title}}}
 - URL: {{{article2.url}}}
-- Content: {{{article2.content}}}
+- H1: {{{article2.h1}}}
+- Meta Title: {{{article2.metaTitle}}}
+- Meta Description: {{{article2.metaDescription}}}
 
 If they are duplicates, provide a brief reason. If not, simply state they are not duplicates.
 Please provide your response in the requested JSON format.
@@ -184,7 +189,7 @@ const findDuplicatesFlow = ai.defineFlow(
             .map(url => {
               const article = articleMap.get(url);
               return article
-                ? {title: article.title, url: article.url}
+                ? {title: article.metaTitle, url: article.url}
                 : null;
             })
             .filter((a): a is {title: string; url: string} => a !== null),

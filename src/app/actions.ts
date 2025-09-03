@@ -7,7 +7,7 @@ import { articleUrls } from '@/lib/article-urls';
 
 async function scrapeArticleContent(
   url: string
-): Promise<{ title: string; content: string }> {
+): Promise<{ h1: string; metaTitle: string; metaDescription: string }> {
   try {
     const response = await fetch(url, {
       headers: {
@@ -22,22 +22,22 @@ async function scrapeArticleContent(
     const html = await response.text();
     const $ = cheerio.load(html);
 
-    const titleElement = $('h1').first();
-    const title = titleElement.text().trim();
+    const h1 = $('h1').first().text().trim();
+    const metaTitle = $('title').text().trim();
+    const metaDescription = $('meta[name="description"]').attr('content')?.trim() || '';
 
-    // To get the rest of the page content, we'll take the body's text
-    // and then remove the h1 title from it to avoid duplication.
-    titleElement.remove();
-    const content = $('body').text().replace(/\s\s+/g, ' ').trim();
-
-    if (!title) {
-      throw new Error('Could not find a title (h1 tag) on the page.');
+    if (!h1) {
+      throw new Error('Could not find an h1 tag on the page.');
     }
-    if (!content) {
-      throw new Error('Could not find any content on the page.');
+    if (!metaTitle) {
+      throw new Error('Could not find a meta title on the page.');
+    }
+    if (!metaDescription) {
+      // Not throwing an error, as some pages might not have a meta description.
+      console.warn(`Could not find a meta description for ${url}`);
     }
 
-    return { title, content };
+    return { h1, metaTitle, metaDescription };
   } catch (error) {
     console.error(`Error scraping article content from ${url}:`, error);
     throw error;
@@ -48,11 +48,12 @@ export async function scrapeAndStoreArticle(
   url: string
 ): Promise<{ success: boolean; url?: string; error?: string }> {
   try {
-    const { title, content } = await scrapeArticleContent(url);
+    const { h1, metaTitle, metaDescription } = await scrapeArticleContent(url);
     await addDoc(collection(db, 'articles'), {
       url,
-      title,
-      content,
+      h1,
+      metaTitle,
+      metaDescription,
       scrapedAt: new Date(),
     });
     return { success: true, url: url };
@@ -82,15 +83,16 @@ export async function getArticleUrls(): Promise<string[]> {
   return Promise.resolve(articleUrls);
 }
 
-export async function getScrapedArticles(): Promise<{ title: string; url: string, content: string }[]> {
+export async function getScrapedArticles(): Promise<{ url: string, h1: string; metaTitle: string; metaDescription: string; }[]> {
   const articlesCollection = collection(db, 'articles');
   const articlesSnapshot = await getDocsFromServer(articlesCollection);
   const articles = articlesSnapshot.docs.map(doc => {
     const data = doc.data();
     return {
-      title: data.title,
       url: data.url,
-      content: data.content,
+      h1: data.h1,
+      metaTitle: data.metaTitle,
+      metaDescription: data.metaDescription,
     };
   });
   return articles;
