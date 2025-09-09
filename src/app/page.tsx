@@ -28,6 +28,7 @@ import {
   Trash2,
   XCircle,
   Lightbulb,
+  RefreshCw,
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { DuplicateAnalysisResult } from "@/ai/flows/find-duplicates-flow";
@@ -40,14 +41,14 @@ export default function Home() {
     useState<DuplicateAnalysisResult | null>(null);
   const [scrapedUrls, setScrapedUrls] = useState<string[]>([]);
   const [totalUrls, setTotalUrls] = useState(0);
-  const [hasStarted, setHasStarted] = useState(false);
+  const [hasScraped, setHasScraped] = useState(false);
   const isStopping = useRef(false);
 
   const { toast } = useToast();
 
-  const handleStartAnalysis = async () => {
+  const handleStartScraping = async () => {
     setIsScraping(true);
-    setHasStarted(true);
+    setHasScraped(true);
     setScrapedUrls([]);
     setAnalysisResult(null);
     isStopping.current = false;
@@ -85,10 +86,10 @@ export default function Home() {
         }
       }
     } catch (error) {
-      console.error("Analysis failed:", error);
+      console.error("Scraping failed:", error);
       toast({
         variant: "destructive",
-        title: "Analysis Failed",
+        title: "Scraping Failed",
         description:
           "Could not fetch the article URL list. Please check the console.",
       });
@@ -137,7 +138,7 @@ export default function Home() {
         // Reset state
         setScrapedUrls([]);
         setTotalUrls(0);
-        setHasStarted(false);
+        setHasScraped(false);
         setAnalysisResult(null);
       } else {
         toast({
@@ -158,7 +159,7 @@ export default function Home() {
   };
 
   const progress = totalUrls > 0 ? (scrapedUrls.length / totalUrls) * 100 : 0;
-  const canAnalyze = hasStarted && !isScraping;
+  const canAnalyze = !isScraping && !isAnalyzing;
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -177,28 +178,48 @@ export default function Home() {
         <div className="container mx-auto px-4 py-8 md:px-6 md:py-12">
           <div className="mx-auto max-w-4xl text-center">
             <h2 className="font-headline text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl">
-              Web Scrape and Store Articles
+              Find Duplicate Articles
             </h2>
             <p className="mt-4 text-muted-foreground md:text-xl">
-              Click the button to start scraping articles from the predefined
-              list and store their content in Firebase.
+              Analyze your articles to find duplicates based on title and content.
+              You can refresh the scraped data at any time.
             </p>
             <div className="mt-8 flex w-full max-w-md mx-auto items-center space-x-2">
               <Button
-                onClick={handleStartAnalysis}
-                disabled={isScraping || isClearing}
+                onClick={handleAnalyzeContent}
+                disabled={isAnalyzing || isScraping}
                 className="w-full"
                 size="lg"
               >
-                {isScraping ? (
+                {isAnalyzing ? (
                   <>
                     <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                    Scraping...
+                    Analyzing...
                   </>
                 ) : (
                   <>
                     <Sparkles className="mr-2 h-5 w-5" />
-                    Start Analysis
+                    Analyze for Duplicates
+                  </>
+                )}
+              </Button>
+            </div>
+             <div className="mt-4 flex w-full max-w-md mx-auto items-center space-x-2">
+              <Button
+                onClick={handleStartScraping}
+                disabled={isScraping || isClearing || isAnalyzing}
+                className="w-full"
+                variant="outline"
+              >
+                {isScraping ? (
+                  <>
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    Scraping Data...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="mr-2 h-5 w-5" />
+                    Refresh Scraped Data
                   </>
                 )}
               </Button>
@@ -206,17 +227,17 @@ export default function Home() {
                 <Button
                   onClick={handleStopScraping}
                   variant="destructive"
-                  size="lg"
+                  size="icon"
                 >
-                  <XCircle className="mr-2 h-5 w-5" />
-                  Stop
+                  <XCircle className="h-5 w-5" />
                 </Button>
               )}
             </div>
           </div>
 
-          {hasStarted && (
+          {(hasScraped || isAnalyzing || analysisResult) && (
             <div className="mx-auto mt-12 max-w-4xl space-y-8">
+              { hasScraped && !isAnalyzing && !analysisResult && (
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -259,7 +280,7 @@ export default function Home() {
                           ))}
                         </ul>
                       </div>
-                    ) : !isScraping && hasStarted ? (
+                    ) : !isScraping && hasScraped ? (
                       <div className="text-center text-muted-foreground flex flex-col items-center gap-4 pt-4">
                         <AlertCircle className="h-10 w-10 text-destructive" />
                         <p>
@@ -271,25 +292,6 @@ export default function Home() {
                   </div>
                 </CardContent>
                 <CardFooter className="flex-col gap-4">
-                  {canAnalyze && (
-                    <Button
-                      onClick={handleAnalyzeContent}
-                      disabled={isAnalyzing || scrapedUrls.length === 0}
-                      className="w-full"
-                    >
-                      {isAnalyzing ? (
-                        <>
-                          <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                          Analyzing Content...
-                        </>
-                      ) : (
-                        <>
-                          <Lightbulb className="mr-2 h-5 w-5" />
-                          Analyze for Duplicates
-                        </>
-                      )}
-                    </Button>
-                  )}
                   <Button
                     onClick={handleClearDatabase}
                     disabled={isClearing || isScraping || isAnalyzing}
@@ -310,6 +312,7 @@ export default function Home() {
                   </Button>
                 </CardFooter>
               </Card>
+              )}
 
               {isAnalyzing && (
                  <div className="flex items-center justify-center rounded-lg border border-dashed p-12">
