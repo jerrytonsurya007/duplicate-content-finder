@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   scrapeAndStoreArticle,
   getArticleUrls,
   clearArticles,
+  getScrapedArticles,
 } from "@/app/actions";
 import { findDuplicates } from "@/ai/flows/find-duplicates-flow";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,13 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { DuplicateAnalysisResult } from "@/ai/flows/find-duplicates-flow";
 
+type ScrapedArticle = {
+  url: string;
+  h1: string;
+  metaTitle: string;
+  metaDescription: string;
+};
+
 export default function Home() {
   const [isScraping, setIsScraping] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
@@ -45,6 +53,30 @@ export default function Home() {
   const isStopping = useRef(false);
 
   const { toast } = useToast();
+
+  const fetchScrapedArticles = useCallback(async () => {
+    try {
+      const articles = await getScrapedArticles();
+      const urls = articles.map((a) => a.url);
+      setScrapedUrls(urls);
+      setTotalUrls(urls.length);
+      if (urls.length > 0) {
+        setHasScraped(true);
+      }
+    } catch (error) {
+      console.error("Failed to fetch scraped articles:", error);
+      toast({
+        variant: "destructive",
+        title: "Failed to load articles",
+        description: "Could not fetch previously scraped articles from the database.",
+      });
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    fetchScrapedArticles();
+  }, [fetchScrapedArticles]);
+
 
   const handleStartScraping = async () => {
     setIsScraping(true);
@@ -158,8 +190,8 @@ export default function Home() {
     }
   };
 
-  const progress = totalUrls > 0 ? (scrapedUrls.length / totalUrls) * 100 : 0;
-  const canAnalyze = !isScraping && !isAnalyzing;
+  const progress = totalUrls > 0 && isScraping ? (scrapedUrls.length / totalUrls) * 100 : 0;
+  const canAnalyze = !isScraping && !isAnalyzing && scrapedUrls.length > 0;
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -187,7 +219,7 @@ export default function Home() {
             <div className="mt-8 flex w-full max-w-md mx-auto items-center space-x-2">
               <Button
                 onClick={handleAnalyzeContent}
-                disabled={isAnalyzing || isScraping}
+                disabled={!canAnalyze}
                 className="w-full"
                 size="lg"
               >
@@ -249,17 +281,17 @@ export default function Home() {
                       ? `Processing ${
                           scrapedUrls.length + 1
                         } of ${totalUrls}...`
-                      : `Scraping complete. Processed ${scrapedUrls.length} of ${totalUrls} articles.`}
+                      : `Scraping complete. Found ${scrapedUrls.length} articles in the database.`}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    <Progress value={progress} className="w-full" />
+                    {isScraping && <Progress value={progress} className="w-full" />}
                     {scrapedUrls.length > 0 ? (
                       <div className="space-y-3 pt-4">
                         <h4 className="flex items-center gap-2 font-semibold">
                           <CheckCircle2 className="h-5 w-5 text-green-500" />
-                          Successfully Scraped {scrapedUrls.length} Articles
+                           {isScraping ? `Successfully Scraped ${scrapedUrls.length} Articles` : `${scrapedUrls.length} Scraped Articles Found`}
                         </h4>
                         <ul className="space-y-2 max-h-[400px] overflow-y-auto rounded-md border bg-muted/50 p-4">
                           {scrapedUrls.map((url) => (
