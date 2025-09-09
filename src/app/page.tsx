@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
@@ -294,9 +295,9 @@ export default function Home() {
                            {isScraping ? `Successfully Scraped ${scrapedUrls.length} Articles` : `${scrapedUrls.length} Scraped Articles Found`}
                         </h4>
                         <ul className="space-y-2 max-h-[400px] overflow-y-auto rounded-md border bg-muted/50 p-4">
-                          {scrapedUrls.map((url) => (
+                          {scrapedUrls.map((url, index) => (
                             <li
-                              key={url}
+                              key={`${url}-${index}`}
                               className="text-sm text-muted-foreground truncate flex items-center gap-2"
                             >
                               <LinkIcon className="h-4 w-4 flex-shrink-0" />
@@ -412,3 +413,5 @@ export default function Home() {
     </div>
   );
 }
+
+    
