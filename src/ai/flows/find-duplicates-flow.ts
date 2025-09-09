@@ -129,11 +129,15 @@ const findDuplicatesFlow = ai.defineFlow(
         const otherArticlesMetadata = otherArticles.map(a => ({ url: a.url, metaTitle: a.metaTitle }));
 
         try {
-            const { output } = await findDuplicatesPrompt({
+            const { output, finishReason } = await findDuplicatesPrompt({
                 primaryArticle,
                 otherArticles: otherArticlesMetadata
             });
             
+            if (finishReason !== 'stop') {
+                throw new Error(`Content generation stopped for an unexpected reason: ${finishReason}`);
+            }
+
             if (output && output.isDuplicate) {
                 output.duplicates.forEach(dup => {
                     // Use a canonical key to store the pair to avoid duplicates like (A,B) and (B,A)
@@ -143,9 +147,10 @@ const findDuplicatesFlow = ai.defineFlow(
                     }
                 });
             }
-        } catch (e) {
+        } catch (e: any) {
             console.error(`Error processing article ${primaryArticle.url}:`, e);
             // Decide if you want to skip or stop. For now, we'll log and continue.
+            throw new Error(`Failed to analyze article against the list. ${e.message || 'An unknown error occurred with the AI model.'}`);
         }
     }
     
@@ -178,7 +183,7 @@ const findDuplicatesFlow = ai.defineFlow(
         if (!groupFound) {
             const newGroupKey = pair.url1; // Use the first URL as the initial key
             consolidatedGroups.set(newGroupKey, {
-                urls: new Set([pair.url1, pair.url2]),
+                urls: new Set([pair.url1, pair.e2]),
                 reason: pair.reason,
             });
         }
