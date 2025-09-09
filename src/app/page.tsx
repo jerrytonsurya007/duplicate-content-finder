@@ -9,7 +9,7 @@ import {
   getScrapedArticles,
   ScrapedArticle,
 } from "@/app/actions";
-import { findDuplicates } from "@/ai/flows/find-duplicates-flow";
+import { compareArticles, ComparisonResult } from "@/ai/flows/find-duplicates-flow";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -32,25 +32,34 @@ import {
   XCircle,
   Lightbulb,
   RefreshCw,
+  Play,
+  Pause,
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
-import { DuplicateAnalysisResult } from "@/ai/flows/find-duplicates-flow";
 
-const ANALYSIS_BATCH_SIZE = 50;
+type DuplicateGroup = {
+  reason: string;
+  articles: { title: string; url: string }[];
+};
 
 export default function Home() {
   const [isScraping, setIsScraping] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisResult, setAnalysisResult] =
-    useState<DuplicateAnalysisResult | null>(null);
+  const [isPaused, setIsPaused] = useState(false);
+
+  const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[]>([]);
   const [scrapedArticles, setScrapedArticles] = useState<ScrapedArticle[]>([]);
   const [totalUrlsToScrape, setTotalUrlsToScrape] = useState(0);
   const [scrapedCount, setScrapedCount] = useState(0);
   const [hasScraped, setHasScraped] = useState(false);
-  const [analysisOffset, setAnalysisOffset] = useState(0);
-  const [analyzedCount, setAnalyzedCount] = useState(0);
-  const isStopping = useRef(false);
+
+  const [totalPairs, setTotalPairs] = useState(0);
+  const [analyzedPairs, setAnalyzedPairs] = useState(0);
+  
+  const isStoppingScraping = useRef(false);
+  const analysisState = useRef({ isRunning: false, currentIndex: 0, currentPairOffset: 1 });
+
 
   const { toast } = useToast();
 
@@ -59,10 +68,10 @@ export default function Home() {
       const articles = await getScrapedArticles();
       setScrapedArticles(articles);
       setScrapedCount(articles.length);
-      setAnalyzedCount(0); // Reset analysis progress
-      setAnalysisOffset(0);
       if (articles.length > 0) {
         setHasScraped(true);
+        const pairCount = (articles.length * (articles.length - 1)) / 2;
+        setTotalPairs(pairCount);
       }
     } catch (error) {
       console.error("Failed to fetch scraped articles:", error);
@@ -78,16 +87,14 @@ export default function Home() {
     fetchScrapedArticles();
   }, [fetchScrapedArticles]);
 
-
   const handleStartScraping = async () => {
     setIsScraping(true);
     setHasScraped(true);
     setScrapedCount(0);
     setScrapedArticles([]);
-    setAnalysisResult(null);
-    setAnalyzedCount(0);
-    setAnalysisOffset(0);
-    isStopping.current = false;
+    setDuplicateGroups([]);
+    setAnalyzedPairs(0);
+    isStoppingScraping.current = false;
 
     try {
       await clearArticles();
@@ -95,7 +102,7 @@ export default function Home() {
       setTotalUrlsToScrape(urlsToScrape.length);
 
       for (const url of urlsToScrape) {
-        if (isStopping.current) {
+        if (isStoppingScraping.current) {
           toast({
             title: "Scraping Stopped",
             description: "The scraping process was manually stopped.",
@@ -131,56 +138,12 @@ export default function Home() {
       });
     } finally {
       setIsScraping(false);
-      // After scraping is done, refresh the list from DB
       await fetchScrapedArticles();
     }
   };
 
-  const handleAnalyzeContent = async () => {
-    if (scrapedArticles.length === 0) return;
-
-    setIsAnalyzing(true);
-    
-    // If it's a new analysis, clear previous results
-    if (analysisOffset === 0) {
-      setAnalysisResult(null);
-    }
-
-    try {
-      const articlesToAnalyze = scrapedArticles.slice(analysisOffset, analysisOffset + ANALYSIS_BATCH_SIZE);
-      const result = await findDuplicates(articlesToAnalyze);
-      
-      // Merge results
-      setAnalysisResult(prevResult => {
-        if (!prevResult) return result;
-        return {
-          duplicateGroups: [...prevResult.duplicateGroups, ...result.duplicateGroups]
-        };
-      });
-
-      const newOffset = analysisOffset + ANALYSIS_BATCH_SIZE;
-      setAnalysisOffset(newOffset);
-      setAnalyzedCount(newOffset > scrapedArticles.length ? scrapedArticles.length : newOffset);
-
-      toast({
-        title: "Analysis Batch Complete",
-        description: `Analyzed ${articlesToAnalyze.length} articles. Click again to continue.`,
-      });
-    } catch (error: any) {
-      console.error("Duplicate analysis failed:", error);
-      toast({
-        variant: "destructive",
-        title: "Analysis Failed",
-        description:
-          "Could not analyze content for duplicates. " + error.message,
-      });
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
   const handleStopScraping = () => {
-    isStopping.current = true;
+    isStoppingScraping.current = true;
     setIsScraping(false);
   };
 
@@ -193,14 +156,14 @@ export default function Home() {
           title: "Database Cleared",
           description: "All scraped articles have been deleted.",
         });
-        // Reset state
         setScrapedArticles([]);
         setTotalUrlsToScrape(0);
         setScrapedCount(0);
         setHasScraped(false);
-        setAnalysisResult(null);
-        setAnalysisOffset(0);
-        setAnalyzedCount(0);
+        setDuplicateGroups([]);
+        setAnalyzedPairs(0);
+        setTotalPairs(0);
+        analysisState.current = { isRunning: false, currentIndex: 0, currentPairOffset: 1 };
       } else {
         toast({
           variant: "destructive",
@@ -218,13 +181,155 @@ export default function Home() {
       setIsClearing(false);
     }
   };
+  
+  const processDuplicates = (foundPairs: {url1: string, url2: string, reason: string}[]) => {
+      const consolidatedGroups = new Map<string, {urls: Set<string>; reason: string}>();
+      for (const pair of foundPairs) {
+        let groupFound = false;
+        for (const group of consolidatedGroups.values()) {
+          if (group.urls.has(pair.url1) || group.urls.has(pair.url2)) {
+            group.urls.add(pair.url1);
+            group.urls.add(pair.url2);
+            groupFound = true;
+            break;
+          }
+        }
+        if (!groupFound) {
+          const newGroupKey = pair.url1;
+          consolidatedGroups.set(newGroupKey, {
+            urls: new Set([pair.url1, pair.url2]),
+            reason: pair.reason,
+          });
+        }
+      }
+
+      const articleMap = new Map(scrapedArticles.map((a) => [a.url, a]));
+      const newDuplicateGroups = Array.from(consolidatedGroups.values()).map((group) => {
+          return {
+            reason: group.reason || 'Found to be a duplicate or heavily related.',
+            articles: Array.from(group.urls)
+              .map((url) => {
+                const article = articleMap.get(url);
+                return article ? {title: article.metaTitle, url: article.url} : null;
+              })
+              .filter((a): a is {title: string; url: string} => a !== null),
+          };
+        })
+        .filter((group) => group.articles.length > 1);
+
+      setDuplicateGroups(newDuplicateGroups);
+  };
+  
+  const runAnalysis = useCallback(async () => {
+    if (!analysisState.current.isRunning || isPaused) return;
+
+    let { currentIndex, currentPairOffset } = analysisState.current;
+    
+    if (currentIndex >= scrapedArticles.length - 1) {
+        setIsAnalyzing(false);
+        analysisState.current.isRunning = false;
+        toast({ title: "Analysis Complete", description: "All article pairs have been analyzed."});
+        return;
+    }
+    
+    const article1 = scrapedArticles[currentIndex];
+    const article2 = scrapedArticles[currentIndex + currentPairOffset];
+
+    const result = await compareArticles(article1, article2);
+
+    if (result.isDuplicate && result.reason) {
+       setDuplicateGroups(prev => {
+          const foundPair = { url1: article1.url, url2: article2.url, reason: result.reason! };
+          const allPairs = [...prev.flatMap(g => {
+              const pairs = [];
+              for(let i=0; i<g.articles.length; i++) {
+                  for(let j=i+1; j<g.articles.length; j++) {
+                      pairs.push({url1: g.articles[i].url, url2: g.articles[j].url, reason: g.reason})
+                  }
+              }
+              return pairs;
+          }), foundPair];
+          
+          const consolidatedGroups = new Map<string, {urls: Set<string>; reason: string}>();
+          for (const pair of allPairs) {
+            let groupFound = false;
+            for (const group of consolidatedGroups.values()) {
+              if (group.urls.has(pair.url1) || group.urls.has(pair.url2)) {
+                group.urls.add(pair.url1);
+                group.urls.add(pair.url2);
+                groupFound = true;
+                break;
+              }
+            }
+            if (!groupFound) {
+              const newGroupKey = pair.url1;
+              consolidatedGroups.set(newGroupKey, {
+                urls: new Set([pair.url1, pair.url2]),
+                reason: pair.reason,
+              });
+            }
+          }
+          const articleMap = new Map(scrapedArticles.map((a) => [a.url, a]));
+          return Array.from(consolidatedGroups.values()).map((group) => {
+              return {
+                reason: group.reason || 'Found to be a duplicate.',
+                articles: Array.from(group.urls)
+                  .map((url) => {
+                    const article = articleMap.get(url);
+                    return article ? {title: article.metaTitle, url: article.url} : null;
+                  })
+                  .filter((a): a is {title: string; url: string} => a !== null),
+              };
+            })
+            .filter((group) => group.articles.length > 1);
+       });
+    }
+
+    setAnalyzedPairs(prev => prev + 1);
+
+    // Update indices for the next pair
+    let nextPairOffset = currentPairOffset + 1;
+    let nextIndex = currentIndex;
+
+    if (nextIndex + nextPairOffset >= scrapedArticles.length) {
+        nextIndex++;
+        nextPairOffset = 1;
+    }
+    
+    analysisState.current.currentIndex = nextIndex;
+    analysisState.current.currentPairOffset = nextPairOffset;
+
+    // Use requestAnimationFrame to avoid deep call stacks and allow UI to update
+    requestAnimationFrame(runAnalysis);
+
+  }, [isPaused, scrapedArticles, toast]);
+  
+  const handleToggleAnalysis = () => {
+    if (isAnalyzing) { // Was running, now pause
+        setIsPaused(true);
+        analysisState.current.isRunning = false;
+        toast({ title: "Analysis Paused" });
+    } else { // Was paused or stopped, now run
+        if (isPaused) { // Resume
+             setIsPaused(false);
+        } else { // Start new
+            setDuplicateGroups([]);
+            setAnalyzedPairs(0);
+            analysisState.current = { isRunning: false, currentIndex: 0, currentPairOffset: 1 };
+        }
+        setIsAnalyzing(true);
+        analysisState.current.isRunning = true;
+        
+        requestAnimationFrame(runAnalysis);
+    }
+  };
+
 
   const progress = totalUrlsToScrape > 0 && isScraping ? (scrapedCount / totalUrlsToScrape) * 100 : 0;
-  const analysisProgress = scrapedArticles.length > 0 ? (analyzedCount / scrapedArticles.length) * 100 : 0;
+  const analysisProgress = totalPairs > 0 ? (analyzedPairs / totalPairs) * 100 : 0;
 
-  const canAnalyze = !isScraping && !isAnalyzing && scrapedArticles.length > 0;
-  const isAnalysisComplete = analyzedCount >= scrapedArticles.length && scrapedArticles.length > 0;
-
+  const canAnalyze = !isScraping && !isClearing && scrapedArticles.length > 1;
+  const isAnalysisComplete = analyzedPairs >= totalPairs && totalPairs > 0;
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -250,16 +355,16 @@ export default function Home() {
               You can refresh the scraped data at any time.
             </p>
             <div className="mt-8 flex w-full max-w-md mx-auto items-center space-x-2">
-              <Button
-                onClick={handleAnalyzeContent}
+               <Button
+                onClick={handleToggleAnalysis}
                 disabled={!canAnalyze || isAnalysisComplete}
                 className="w-full"
                 size="lg"
               >
-                {isAnalyzing ? (
+                {isAnalyzing && !isPaused ? (
                   <>
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                    Analyzing...
+                    <Pause className="mr-2 h-5 w-5" />
+                    Pause Analysis
                   </>
                 ) : isAnalysisComplete ? (
                    <>
@@ -268,8 +373,8 @@ export default function Home() {
                   </>
                 ) : (
                   <>
-                    <Sparkles className="mr-2 h-5 w-5" />
-                    Analyze Next {ANALYSIS_BATCH_SIZE} Articles
+                    <Play className="mr-2 h-5 w-5" />
+                    { isPaused ? 'Resume Analysis' : 'Start Analysis' }
                   </>
                 )}
               </Button>
@@ -305,7 +410,7 @@ export default function Home() {
             </div>
           </div>
 
-          {(hasScraped || isAnalyzing || analysisResult) && (
+          {(hasScraped || isAnalyzing || duplicateGroups.length > 0) && (
             <div className="mx-auto mt-12 max-w-4xl space-y-8">
               { hasScraped && (
               <Card>
@@ -382,7 +487,7 @@ export default function Home() {
               </Card>
               )}
 
-              {(isAnalyzing || analysisResult) && (
+              {(isAnalyzing || isPaused || duplicateGroups.length > 0 || isAnalysisComplete) && (
                 <Card>
                    <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -390,18 +495,18 @@ export default function Home() {
                       Analysis Results
                     </CardTitle>
                     <CardDescription>
-                      {`Analysis progress: ${analyzedCount} of ${scrapedArticles.length} articles analyzed.`}
+                      {`Analysis progress: ${analyzedPairs} of ${totalPairs} pairs analyzed.`}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
                      <Progress value={analysisProgress} className="w-full mb-4" />
-                     {isAnalyzing && (
+                     {isAnalyzing && !isPaused && (
                       <div className="flex items-center justify-center rounded-lg border border-dashed p-12">
                           <Loader2 className="h-10 w-10 animate-spin text-muted-foreground" />
                       </div>
                     )}
-                    {analysisResult && analysisResult.duplicateGroups.length > 0 ? (
-                      analysisResult.duplicateGroups.map((group, index) => (
+                    {duplicateGroups.length > 0 ? (
+                      duplicateGroups.map((group, index) => (
                         <div
                           key={index}
                           className="rounded-lg border bg-background p-4 mt-4"

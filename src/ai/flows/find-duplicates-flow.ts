@@ -3,43 +3,12 @@
 /**
  * @fileOverview A flow for finding duplicate or heavily related articles by comparing them in pairs.
  *
- * - findDuplicates - Identifies groups of similar articles from a given list.
- * - DuplicateAnalysisResult - The output type for the findDuplicates function.
+ * - compareArticles - Compares two articles to see if they are duplicates.
+ * - ComparisonResult - The output type for the compareArticles function.
  */
 
 import {ai} from '@/ai/genkit';
 import {z} from 'zod';
-import { ScrapedArticle } from '@/app/actions';
-
-// Define the schema for a single article within a duplicate group
-const DuplicateArticleSchema = z.object({
-  title: z.string().describe('The title of the article.'),
-  url: z.string().url().describe('The URL of the article.'),
-});
-
-// Define the schema for a group of duplicate/related articles
-const DuplicateGroupSchema = z.object({
-  reason: z
-    .string()
-    .describe('A brief explanation of why these articles are grouped together.'),
-  articles: z
-    .array(DuplicateArticleSchema)
-    .describe(
-      'A list of articles that are considered duplicates or heavily related.'
-    ),
-});
-
-// Define the schema for the overall analysis result
-const DuplicateAnalysisResultSchema = z.object({
-  duplicateGroups: z
-    .array(DuplicateGroupSchema)
-    .describe(
-      'An array of article groups, where each group contains articles that are duplicates or heavily related.'
-    ),
-});
-export type DuplicateAnalysisResult = z.infer<
-  typeof DuplicateAnalysisResultSchema
->;
 
 // Schema for a single article's metadata for comparison
 const ArticleMetadataSchema = z.object({
@@ -47,10 +16,6 @@ const ArticleMetadataSchema = z.object({
   h1: z.string(),
   metaTitle: z.string(),
   metaDescription: z.string(),
-});
-
-const FlowInputSchema = z.object({
-  articles: z.array(ArticleMetadataSchema),
 });
 
 // Schema for the prompt that compares two articles
@@ -69,6 +34,8 @@ const ComparisonResultSchema = z.object({
       "The reason for the duplication (e.g., 'Identical H1 tags')."
     ),
 });
+export type ComparisonResult = z.infer<typeof ComparisonResultSchema>;
+
 
 const compareArticlesPrompt = ai.definePrompt({
   name: 'compareArticlesPrompt',
@@ -103,114 +70,35 @@ Are these two articles duplicates based on the strict criteria? If so, provide t
 `,
 });
 
-const findDuplicatesFlow = ai.defineFlow(
-  {
-    name: 'findDuplicatesFlow',
-    inputSchema: FlowInputSchema,
-    outputSchema: DuplicateAnalysisResultSchema,
-  },
-  async ({ articles }) => {
-    const numArticles = articles.length;
+export async function compareArticles(
+  article1: z.infer<typeof ArticleMetadataSchema>,
+  article2: z.infer<typeof ArticleMetadataSchema>
+): Promise<ComparisonResult> {
+  try {
+    const {output, finishReason} = await compareArticlesPrompt({
+      article1,
+      article2,
+    });
 
-    if (numArticles < 2) {
-      return {duplicateGroups: []};
+    if (finishReason !== 'stop' && finishReason !== 'unknown') {
+      console.warn(
+        `Content generation for pair ${article1.url} and ${article2.url} stopped for an unexpected reason: ${finishReason}`
+      );
+      return { isDuplicate: false, reason: `Analysis stopped: ${finishReason}` };
     }
 
-    // Create all unique pairs of articles to compare
-    const articlePairs: {
-      article1: (typeof articles)[0];
-      article2: (typeof articles)[0];
-    }[] = [];
-    for (let i = 0; i < numArticles; i++) {
-      for (let j = i + 1; j < numArticles; j++) {
-        articlePairs.push({article1: articles[i], article2: articles[j]});
-      }
+    if (output) {
+      return output;
     }
-
-    const foundPairs: {url1: string; url2: string; reason: string}[] = [];
-
-    // Process pairs sequentially to avoid rate limiting
-    for (const pair of articlePairs) {
-      try {
-        const {output, finishReason} = await compareArticlesPrompt({
-          article1: pair.article1,
-          article2: pair.article2,
-        });
-
-        if (finishReason !== 'stop' && finishReason !== 'unknown') {
-          console.warn(
-            `Content generation for pair ${pair.article1.url} and ${pair.article2.url} stopped for an unexpected reason: ${finishReason}`
-          );
-          // Continue to next pair
-        }
-
-        if (output?.isDuplicate && output.reason) {
-          foundPairs.push({
-            url1: pair.article1.url,
-            url2: pair.article2.url,
-            reason: output.reason,
-          });
-        }
-      } catch (e: any) {
-        console.error(
-          `Error comparing articles ${pair.article1.url} and ${pair.article2.url}:`,
-          e
-        );
-        // Instead of throwing, we log the error and continue with the next pairs.
-        // This makes the process more resilient to occasional API failures.
-      }
-    }
-
-    // Consolidate pairs into groups
-    const consolidatedGroups = new Map<
-      string,
-      {urls: Set<string>; reason: string}
-    >();
-
-    for (const pair of foundPairs) {
-      let groupFound = false;
-      // Check if either article in the pair already belongs to a group
-      for (const group of consolidatedGroups.values()) {
-        if (group.urls.has(pair.url1) || group.urls.has(pair.url2)) {
-          group.urls.add(pair.url1);
-          group.urls.add(pair.url2);
-          // We'll keep the reason from the first pair that formed the group.
-          groupFound = true;
-          break;
-        }
-      }
-      // If no group was found, create a new one
-      if (!groupFound) {
-        const newGroupKey = pair.url1; // Use the first URL as the initial key
-        consolidatedGroups.set(newGroupKey, {
-          urls: new Set([pair.url1, pair.url2]),
-          reason: pair.reason,
-        });
-      }
-    }
-
-    const articleMap = new Map(articles.map((a) => [a.url, a]));
-
-    const duplicateGroups = Array.from(consolidatedGroups.values())
-      .map((group) => {
-        return {
-          reason: group.reason || 'Found to be a duplicate or heavily related.',
-          articles: Array.from(group.urls)
-            .map((url) => {
-              const article = articleMap.get(url);
-              return article
-                ? {title: article.metaTitle, url: article.url}
-                : null;
-            })
-            .filter((a): a is {title: string; url: string} => a !== null),
-        };
-      })
-      .filter((group) => group.articles.length > 1); // Only include groups with more than one article
-
-    return {duplicateGroups};
+    
+    return { isDuplicate: false, reason: "No output from AI." };
+  } catch (e: any) {
+    console.error(
+      `Error comparing articles ${article1.url} and ${article2.url}:`,
+      e
+    );
+    // Instead of throwing, we log the error and return a non-duplicate result.
+    // This makes the process more resilient to occasional API failures.
+    return { isDuplicate: false, reason: e.message || 'Comparison failed' };
   }
-);
-
-export async function findDuplicates(articles: ScrapedArticle[]): Promise<DuplicateAnalysisResult> {
-  return findDuplicatesFlow({ articles });
 }
