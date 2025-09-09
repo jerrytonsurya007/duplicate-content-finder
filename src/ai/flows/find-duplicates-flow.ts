@@ -1,7 +1,7 @@
 'use server';
 
 /**
- * @fileOverview A flow for finding duplicate or heavily related articles using a map-reduce strategy.
+ * @fileOverview A flow for finding duplicate or heavily related articles using an efficient one-vs-many comparison.
  *
  * - findDuplicates - Identifies groups of similar articles from Firestore.
  * - DuplicateAnalysisResult - The output type for the findDuplicates function.
@@ -41,40 +41,41 @@ export type DuplicateAnalysisResult = z.infer<
   typeof DuplicateAnalysisResultSchema
 >;
 
-// Define the schema for the prompt that compares *two* articles
-const CompareArticlesSchema = z.object({
-  article1: z.object({
+// Schema for the primary article being analyzed
+const PrimaryArticleSchema = z.object({
     url: z.string().url(),
     h1: z.string(),
     metaTitle: z.string(),
     metaDescription: z.string(),
-  }),
-  article2: z.object({
+});
+
+// Schema for the list of other articles to compare against
+const OtherArticlesSchema = z.array(z.object({
     url: z.string().url(),
-    h1: z.string(),
     metaTitle: z.string(),
-    metaDescription: z.string(),
-  }),
+}));
+
+
+// Schema for the prompt that compares one primary article against a list of others
+const FindDuplicatesPromptSchema = z.object({
+  primaryArticle: PrimaryArticleSchema,
+  otherArticles: OtherArticlesSchema,
 });
 
-// Define the schema for the output of the two-article comparison
-const ComparisonResultSchema = z.object({
-  isDuplicate: z
-    .boolean()
-    .describe('Whether the two articles are duplicates.'),
-  reason: z
-    .string()
-    .optional()
-    .describe(
-      'The reason for the duplication, if applicable (e.g., "Identical H1 tags").'
-    ),
+// Schema for the output of the one-vs-many comparison
+const FoundDuplicatesSchema = z.object({
+    isDuplicate: z.boolean().describe("Whether any duplicates were found for the primary article."),
+    duplicates: z.array(z.object({
+        url: z.string().url().describe("The URL of the duplicate article."),
+        reason: z.string().describe("The reason for the duplication (e.g., 'Identical H1 tags').")
+    })).describe("A list of articles that were found to be duplicates of the primary article.")
 });
 
-const compareArticlesPrompt = ai.definePrompt({
-  name: 'compareArticlesPrompt',
-  input: {schema: CompareArticlesSchema},
-  output: {schema: ComparisonResultSchema},
-  prompt: `You are an expert content analyst. Your task is to determine if two articles are duplicates based on their metadata.
+const findDuplicatesPrompt = ai.definePrompt({
+  name: 'findDuplicatesPrompt',
+  input: {schema: FindDuplicatesPromptSchema},
+  output: {schema: FoundDuplicatesSchema},
+  prompt: `You are an expert content analyst. Your task is to determine if the primary article is a duplicate of any other articles in the provided list, based on their metadata.
 
 An article should be considered a duplicate of another only if it meets one of the following strict criteria:
 1.  The H1 tags are identical.
@@ -83,22 +84,25 @@ An article should be considered a duplicate of another only if it meets one of t
 
 General topic similarity is NOT enough. You must find exact, word-for-word matches in the H1 or Meta Title, or strong similarity in the Meta Description.
 
-Analyze the following two articles and determine if they are duplicates based on the strict criteria.
+Analyze the primary article below and compare it against the list of other articles.
 
-Article 1:
-- URL: {{{article1.url}}}
-- H1: {{{article1.h1}}}
-- Meta Title: {{{article1.metaTitle}}}
-- Meta Description: {{{article1.metaDescription}}}
+Primary Article:
+- URL: {{{primaryArticle.url}}}
+- H1: {{{primaryArticle.h1}}}
+- Meta Title: {{{primaryArticle.metaTitle}}}
+- Meta Description: {{{primaryArticle.metaDescription}}}
+
 ---
-Article 2:
-- URL: {{{article2.url}}}
-- H1: {{{article2.h1}}}
-- Meta Title: {{{article2.metaTitle}}}
-- Meta Description: {{{article2.metaDescription}}}
+List of Other Articles to Compare Against:
+{{#each otherArticles}}
+- URL: {{{this.url}}}
+- Meta Title: {{{this.metaTitle}}}
+{{/each}}
+---
 
-If they are duplicates, provide a brief reason. If not, simply state they are not duplicates.
-Please provide your response in the requested JSON format.
+Return a list of all URLs from the "other articles" list that are duplicates of the primary article, along with the specific reason for each duplication.
+
+Please provide your response in the requested JSON format. If no duplicates are found, return an empty list.
 `,
 });
 
@@ -115,43 +119,42 @@ const findDuplicatesFlow = ai.defineFlow(
       return {duplicateGroups: []};
     }
 
-    const foundPairs = new Map<string, {reason: string; article2: string}>();
-    
-    // Create all unique pairs of articles to compare
-    const articlePairs: {article1: (typeof articles)[0], article2: (typeof articles)[0]}[] = [];
+    const foundPairs = new Map<string, string>(); // Key: "url1|url2", Value: reason
+
     for (let i = 0; i < numArticles; i++) {
-        for (let j = i + 1; j < numArticles; j++) {
-            articlePairs.push({ article1: articles[i], article2: articles[j] });
-        }
-    }
+        const primaryArticle = articles[i];
+        // Create a list of other articles to compare against
+        const otherArticles = articles.slice(0, i).concat(articles.slice(i + 1));
+        
+        const otherArticlesMetadata = otherArticles.map(a => ({ url: a.url, metaTitle: a.metaTitle }));
 
-    // Process pairs in batches to avoid overwhelming the system
-    const BATCH_SIZE = 1;
-    for (let i = 0; i < articlePairs.length; i += BATCH_SIZE) {
-        const batch = articlePairs.slice(i, i + BATCH_SIZE);
-        const batchPromises = batch.map(async (pair) => {
-            const {output} = await compareArticlesPrompt({
-              article1: pair.article1,
-              article2: pair.article2,
+        try {
+            const { output } = await findDuplicatesPrompt({
+                primaryArticle,
+                otherArticles: otherArticlesMetadata
             });
-
-            if (output && output.isDuplicate && output.reason) {
-                // Use a canonical key to store the pair to avoid duplicates like (A,B) and (B,A)
-                const key = [pair.article1.url, pair.article2.url].sort().join('|');
-                if (!foundPairs.has(key)) {
-                    foundPairs.set(key, { reason: output.reason, article2: pair.article2.url });
-                }
+            
+            if (output && output.isDuplicate) {
+                output.duplicates.forEach(dup => {
+                    // Use a canonical key to store the pair to avoid duplicates like (A,B) and (B,A)
+                    const key = [primaryArticle.url, dup.url].sort().join('|');
+                    if (!foundPairs.has(key)) {
+                        foundPairs.set(key, dup.reason);
+                    }
+                });
             }
-        });
-        await Promise.all(batchPromises);
+        } catch (e) {
+            console.error(`Error processing article ${primaryArticle.url}:`, e);
+            // Decide if you want to skip or stop. For now, we'll log and continue.
+        }
     }
     
     // Convert the map of pairs into a list of actual pairs for consolidation
     const finalPairs: {url1: string, url2: string, reason: string}[] = [];
-    foundPairs.forEach((value, key) => {
+    foundPairs.forEach((reason, key) => {
         const [url1, url2] = key.split('|');
-        if (url1 && url2 && value.reason) {
-            finalPairs.push({url1, url2, reason: value.reason});
+        if (url1 && url2 && reason) {
+            finalPairs.push({url1, url2, reason});
         }
     });
 
