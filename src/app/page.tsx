@@ -36,7 +36,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { DuplicateAnalysisResult } from "@/ai/flows/find-duplicates-flow";
 
-const ANALYSIS_BATCH_SIZE = 100;
+const ANALYSIS_BATCH_SIZE = 50;
 
 export default function Home() {
   const [isScraping, setIsScraping] = useState(false);
