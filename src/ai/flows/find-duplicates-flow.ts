@@ -3,13 +3,13 @@
 /**
  * @fileOverview A flow for finding duplicate or heavily related articles by comparing them in pairs.
  *
- * - findDuplicates - Identifies groups of similar articles from Firestore.
+ * - findDuplicates - Identifies groups of similar articles from a given list.
  * - DuplicateAnalysisResult - The output type for the findDuplicates function.
  */
 
 import {ai} from '@/ai/genkit';
-import {getScrapedArticles} from '@/app/actions';
 import {z} from 'zod';
+import { ScrapedArticle } from '@/app/actions';
 
 // Define the schema for a single article within a duplicate group
 const DuplicateArticleSchema = z.object({
@@ -47,6 +47,10 @@ const ArticleMetadataSchema = z.object({
   h1: z.string(),
   metaTitle: z.string(),
   metaDescription: z.string(),
+});
+
+const FlowInputSchema = z.object({
+  articles: z.array(ArticleMetadataSchema),
 });
 
 // Schema for the prompt that compares two articles
@@ -102,10 +106,10 @@ Are these two articles duplicates based on the strict criteria? If so, provide t
 const findDuplicatesFlow = ai.defineFlow(
   {
     name: 'findDuplicatesFlow',
+    inputSchema: FlowInputSchema,
     outputSchema: DuplicateAnalysisResultSchema,
   },
-  async () => {
-    const articles = await getScrapedArticles();
+  async ({ articles }) => {
     const numArticles = articles.length;
 
     if (numArticles < 2) {
@@ -207,6 +211,6 @@ const findDuplicatesFlow = ai.defineFlow(
   }
 );
 
-export async function findDuplicates(): Promise<DuplicateAnalysisResult> {
-  return findDuplicatesFlow();
+export async function findDuplicates(articles: ScrapedArticle[]): Promise<DuplicateAnalysisResult> {
+  return findDuplicatesFlow({ articles });
 }

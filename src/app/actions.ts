@@ -83,7 +83,14 @@ export async function getArticleUrls(): Promise<string[]> {
   return Promise.resolve(articleUrls);
 }
 
-export async function getScrapedArticles(): Promise<{ url: string, h1: string; metaTitle: string; metaDescription: string; }[]> {
+export type ScrapedArticle = {
+  url: string;
+  h1: string;
+  metaTitle: string;
+  metaDescription: string;
+};
+
+export async function getScrapedArticles(): Promise<ScrapedArticle[]> {
   const articlesCollection = collection(db, 'articles');
   const articlesSnapshot = await getDocsFromServer(articlesCollection);
   const articles = articlesSnapshot.docs.map(doc => {
@@ -97,5 +104,3 @@ export async function getScrapedArticles(): Promise<{ url: string, h1: string; m
   });
   return articles;
 }
-
-    

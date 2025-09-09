@@ -7,6 +7,7 @@ import {
   getArticleUrls,
   clearArticles,
   getScrapedArticles,
+  ScrapedArticle,
 } from "@/app/actions";
 import { findDuplicates } from "@/ai/flows/find-duplicates-flow";
 import { Button } from "@/components/ui/button";
@@ -35,12 +36,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { DuplicateAnalysisResult } from "@/ai/flows/find-duplicates-flow";
 
-type ScrapedArticle = {
-  url: string;
-  h1: string;
-  metaTitle: string;
-  metaDescription: string;
-};
+const ANALYSIS_BATCH_SIZE = 100;
 
 export default function Home() {
   const [isScraping, setIsScraping] = useState(false);
@@ -48,9 +44,12 @@ export default function Home() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] =
     useState<DuplicateAnalysisResult | null>(null);
-  const [scrapedUrls, setScrapedUrls] = useState<string[]>([]);
-  const [totalUrls, setTotalUrls] = useState(0);
+  const [scrapedArticles, setScrapedArticles] = useState<ScrapedArticle[]>([]);
+  const [totalUrlsToScrape, setTotalUrlsToScrape] = useState(0);
+  const [scrapedCount, setScrapedCount] = useState(0);
   const [hasScraped, setHasScraped] = useState(false);
+  const [analysisOffset, setAnalysisOffset] = useState(0);
+  const [analyzedCount, setAnalyzedCount] = useState(0);
   const isStopping = useRef(false);
 
   const { toast } = useToast();
@@ -58,10 +57,11 @@ export default function Home() {
   const fetchScrapedArticles = useCallback(async () => {
     try {
       const articles = await getScrapedArticles();
-      const urls = articles.map((a) => a.url);
-      setScrapedUrls(urls);
-      setTotalUrls(urls.length);
-      if (urls.length > 0) {
+      setScrapedArticles(articles);
+      setScrapedCount(articles.length);
+      setAnalyzedCount(0); // Reset analysis progress
+      setAnalysisOffset(0);
+      if (articles.length > 0) {
         setHasScraped(true);
       }
     } catch (error) {
@@ -82,14 +82,17 @@ export default function Home() {
   const handleStartScraping = async () => {
     setIsScraping(true);
     setHasScraped(true);
-    setScrapedUrls([]);
+    setScrapedCount(0);
+    setScrapedArticles([]);
     setAnalysisResult(null);
+    setAnalyzedCount(0);
+    setAnalysisOffset(0);
     isStopping.current = false;
 
     try {
-      await clearArticles(); // Clear previous data before starting
+      await clearArticles();
       const urlsToScrape = await getArticleUrls();
-      setTotalUrls(urlsToScrape.length);
+      setTotalUrlsToScrape(urlsToScrape.length);
 
       for (const url of urlsToScrape) {
         if (isStopping.current) {
@@ -102,7 +105,7 @@ export default function Home() {
         try {
           const result = await scrapeAndStoreArticle(url);
           if (result.success) {
-            setScrapedUrls((prev) => [...prev, result.url!]);
+            setScrapedCount((prev) => prev + 1);
           } else {
             toast({
               variant: "destructive",
@@ -128,18 +131,40 @@ export default function Home() {
       });
     } finally {
       setIsScraping(false);
+      // After scraping is done, refresh the list from DB
+      await fetchScrapedArticles();
     }
   };
 
   const handleAnalyzeContent = async () => {
+    if (scrapedArticles.length === 0) return;
+
     setIsAnalyzing(true);
-    setAnalysisResult(null);
+    
+    // If it's a new analysis, clear previous results
+    if (analysisOffset === 0) {
+      setAnalysisResult(null);
+    }
+
     try {
-      const result = await findDuplicates();
-      setAnalysisResult(result);
+      const articlesToAnalyze = scrapedArticles.slice(analysisOffset, analysisOffset + ANALYSIS_BATCH_SIZE);
+      const result = await findDuplicates(articlesToAnalyze);
+      
+      // Merge results
+      setAnalysisResult(prevResult => {
+        if (!prevResult) return result;
+        return {
+          duplicateGroups: [...prevResult.duplicateGroups, ...result.duplicateGroups]
+        };
+      });
+
+      const newOffset = analysisOffset + ANALYSIS_BATCH_SIZE;
+      setAnalysisOffset(newOffset);
+      setAnalyzedCount(newOffset > scrapedArticles.length ? scrapedArticles.length : newOffset);
+
       toast({
-        title: "Analysis Complete",
-        description: "Duplicate content analysis is finished.",
+        title: "Analysis Batch Complete",
+        description: `Analyzed ${articlesToAnalyze.length} articles. Click again to continue.`,
       });
     } catch (error: any) {
       console.error("Duplicate analysis failed:", error);
@@ -169,10 +194,13 @@ export default function Home() {
           description: "All scraped articles have been deleted.",
         });
         // Reset state
-        setScrapedUrls([]);
-        setTotalUrls(0);
+        setScrapedArticles([]);
+        setTotalUrlsToScrape(0);
+        setScrapedCount(0);
         setHasScraped(false);
         setAnalysisResult(null);
+        setAnalysisOffset(0);
+        setAnalyzedCount(0);
       } else {
         toast({
           variant: "destructive",
@@ -191,8 +219,12 @@ export default function Home() {
     }
   };
 
-  const progress = totalUrls > 0 && isScraping ? (scrapedUrls.length / totalUrls) * 100 : 0;
-  const canAnalyze = !isScraping && !isAnalyzing && scrapedUrls.length > 0;
+  const progress = totalUrlsToScrape > 0 && isScraping ? (scrapedCount / totalUrlsToScrape) * 100 : 0;
+  const analysisProgress = scrapedArticles.length > 0 ? (analyzedCount / scrapedArticles.length) * 100 : 0;
+
+  const canAnalyze = !isScraping && !isAnalyzing && scrapedArticles.length > 0;
+  const isAnalysisComplete = analyzedCount >= scrapedArticles.length && scrapedArticles.length > 0;
+
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -220,7 +252,7 @@ export default function Home() {
             <div className="mt-8 flex w-full max-w-md mx-auto items-center space-x-2">
               <Button
                 onClick={handleAnalyzeContent}
-                disabled={!canAnalyze}
+                disabled={!canAnalyze || isAnalysisComplete}
                 className="w-full"
                 size="lg"
               >
@@ -229,10 +261,15 @@ export default function Home() {
                     <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                     Analyzing...
                   </>
+                ) : isAnalysisComplete ? (
+                   <>
+                    <CheckCircle2 className="mr-2 h-5 w-5" />
+                    Analysis Complete
+                  </>
                 ) : (
                   <>
                     <Sparkles className="mr-2 h-5 w-5" />
-                    Analyze for Duplicates
+                    Analyze Next {ANALYSIS_BATCH_SIZE} Articles
                   </>
                 )}
               </Button>
@@ -270,32 +307,30 @@ export default function Home() {
 
           {(hasScraped || isAnalyzing || analysisResult) && (
             <div className="mx-auto mt-12 max-w-4xl space-y-8">
-              { hasScraped && !isAnalyzing && !analysisResult && (
+              { hasScraped && (
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <FileText />
-                    Scraping Progress
+                    Scraped Data Status
                   </CardTitle>
                   <CardDescription>
                     {isScraping
-                      ? `Processing ${
-                          scrapedUrls.length + 1
-                        } of ${totalUrls}...`
-                      : `Scraping complete. Found ${scrapedUrls.length} articles in the database.`}
+                      ? `Processing ${scrapedCount + 1} of ${totalUrlsToScrape}...`
+                      : `Found ${scrapedArticles.length} articles in the database. Ready for analysis.`}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
                     {isScraping && <Progress value={progress} className="w-full" />}
-                    {scrapedUrls.length > 0 ? (
+                    {scrapedArticles.length > 0 ? (
                       <div className="space-y-3 pt-4">
                         <h4 className="flex items-center gap-2 font-semibold">
                           <CheckCircle2 className="h-5 w-5 text-green-500" />
-                           {isScraping ? `Successfully Scraped ${scrapedUrls.length} Articles` : `${scrapedUrls.length} Scraped Articles Found`}
+                           {isScraping ? `Successfully Scraped ${scrapedCount} Articles` : `${scrapedArticles.length} Scraped Articles Found`}
                         </h4>
                         <ul className="space-y-2 max-h-[400px] overflow-y-auto rounded-md border bg-muted/50 p-4">
-                          {scrapedUrls.map((url, index) => (
+                          {scrapedArticles.map(({ url }, index) => (
                             <li
                               key={`${url}-${index}`}
                               className="text-sm text-muted-foreground truncate flex items-center gap-2"
@@ -347,30 +382,29 @@ export default function Home() {
               </Card>
               )}
 
-              {isAnalyzing && (
-                 <div className="flex items-center justify-center rounded-lg border border-dashed p-12">
-                    <Loader2 className="h-10 w-10 animate-spin text-muted-foreground" />
-                 </div>
-              )}
-
-              {analysisResult && (
+              {(isAnalyzing || analysisResult) && (
                 <Card>
-                  <CardHeader>
+                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <Lightbulb />
                       Analysis Results
                     </CardTitle>
                     <CardDescription>
-                      The following groups of articles were identified as having
-                      heavily related or duplicate content.
+                      {`Analysis progress: ${analyzedCount} of ${scrapedArticles.length} articles analyzed.`}
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-4">
-                    {analysisResult.duplicateGroups.length > 0 ? (
+                  <CardContent>
+                     <Progress value={analysisProgress} className="w-full mb-4" />
+                     {isAnalyzing && (
+                      <div className="flex items-center justify-center rounded-lg border border-dashed p-12">
+                          <Loader2 className="h-10 w-10 animate-spin text-muted-foreground" />
+                      </div>
+                    )}
+                    {analysisResult && analysisResult.duplicateGroups.length > 0 ? (
                       analysisResult.duplicateGroups.map((group, index) => (
                         <div
                           key={index}
-                          className="rounded-lg border bg-background p-4"
+                          className="rounded-lg border bg-background p-4 mt-4"
                         >
                           <h4 className="font-semibold">Group {index + 1}</h4>
                           <p className="mt-2 text-sm text-muted-foreground italic">
@@ -399,8 +433,8 @@ export default function Home() {
                         </div>
                       ))
                     ) : (
-                      <p className="text-center text-muted-foreground">
-                        No duplicate or heavily related articles were found.
+                      !isAnalyzing && <p className="text-center text-muted-foreground pt-4">
+                        No duplicate or heavily related articles were found in the analyzed batches.
                       </p>
                     )}
                   </CardContent>
@@ -413,5 +447,3 @@ export default function Home() {
     </div>
   );
 }
-
-    
