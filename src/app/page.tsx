@@ -305,20 +305,20 @@ export default function Home() {
   }, [isPaused, scrapedArticles, toast]);
   
   const handleToggleAnalysis = () => {
-    if (isAnalyzing) { // Was running, now pause
+    if (isAnalyzing && !isPaused) { // Was running, now pause
         setIsPaused(true);
         analysisState.current.isRunning = false;
         toast({ title: "Analysis Paused" });
-    } else { // Was paused or stopped, now run
-        if (isPaused) { // Resume
-             setIsPaused(false);
-        } else { // Start new
-            setDuplicateGroups([]);
-            setAnalyzedPairs(0);
-            analysisState.current = { isRunning: false, currentIndex: 0, currentPairOffset: 1 };
-        }
+    } else { // Was paused or stopped, now run/resume
+        setIsPaused(false);
         setIsAnalyzing(true);
         analysisState.current.isRunning = true;
+        
+        if (!isPaused) { // This is a new run
+            setDuplicateGroups([]);
+            setAnalyzedPairs(0);
+            analysisState.current = { isRunning: true, currentIndex: 0, currentPairOffset: 1 };
+        }
         
         requestAnimationFrame(runAnalysis);
     }
@@ -357,7 +357,7 @@ export default function Home() {
             <div className="mt-8 flex w-full max-w-md mx-auto items-center space-x-2">
                <Button
                 onClick={handleToggleAnalysis}
-                disabled={!canAnalyze || isAnalysisComplete}
+                disabled={!canAnalyze || (isAnalyzing && !isPaused) || isAnalysisComplete}
                 className="w-full"
                 size="lg"
               >
