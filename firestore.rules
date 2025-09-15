@@ -1,15 +1,15 @@
+
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Rules for the 'articles' collection
     match /articles/{articleId} {
-      // Allow anyone to read documents in the articles collection.
-      // This is necessary for the app to fetch the list of scraped articles.
+      // Allow public read access (get and list) to the articles.
       allow read: if true;
 
       // Anyone can create an article, but they MUST provide the required fields.
-      // In a real application, you would restrict this to authenticated users
-      // with: allow create: if request.auth != null && ...
+      // In a real application, you would restrict this to authenticated users.
       allow create: if request.resource.data.url is string &&
                        request.resource.data.h1 is string &&
                        request.resource.data.metaTitle is string &&
@@ -17,10 +17,13 @@ service cloud.firestore {
 
       // Anyone can delete documents from this collection.
       allow delete: if true;
+
+      // Deny any update operations.
+      allow update: if false;
     }
 
-    // Deny all other access to prevent unauthorized reads or writes.
-    match /{path=**}/documents/{document} {
+    // Deny all other access to prevent unauthorized reads/writes.
+    match /{document=**} {
       allow read, write: if false;
     }
   }
