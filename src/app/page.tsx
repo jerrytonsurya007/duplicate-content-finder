@@ -34,6 +34,7 @@ import {
   RefreshCw,
   Play,
   Pause,
+  StopCircle,
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
@@ -310,11 +311,12 @@ export default function Home() {
         analysisState.current.isRunning = false;
         toast({ title: "Analysis Paused" });
     } else { // Was paused or stopped, now run/resume
+        const startingFromScratch = !isAnalyzing && !isPaused;
         setIsPaused(false);
         setIsAnalyzing(true);
         analysisState.current.isRunning = true;
         
-        if (!isPaused) { // This is a new run
+        if (startingFromScratch) { // This is a new run
             setDuplicateGroups([]);
             setAnalyzedPairs(0);
             analysisState.current = { isRunning: true, currentIndex: 0, currentPairOffset: 1 };
@@ -324,12 +326,20 @@ export default function Home() {
     }
   };
 
+  const handleStopAnalysis = () => {
+    analysisState.current.isRunning = false;
+    setIsAnalyzing(false);
+    setIsPaused(false);
+    toast({ title: "Analysis Stopped", description: "The process was manually stopped." });
+  };
+
 
   const progress = totalUrlsToScrape > 0 && isScraping ? (scrapedCount / totalUrlsToScrape) * 100 : 0;
   const analysisProgress = totalPairs > 0 ? (analyzedPairs / totalPairs) * 100 : 0;
 
   const canAnalyze = !isScraping && !isClearing && scrapedArticles.length > 1;
   const isAnalysisComplete = analyzedPairs >= totalPairs && totalPairs > 0;
+  const isAnalysisRunning = isAnalyzing && !isPaused;
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -357,11 +367,11 @@ export default function Home() {
             <div className="mt-8 flex w-full max-w-md mx-auto items-center space-x-2">
                <Button
                 onClick={handleToggleAnalysis}
-                disabled={!canAnalyze || (isAnalyzing && !isPaused) || isAnalysisComplete}
+                disabled={!canAnalyze || isAnalysisRunning || isAnalysisComplete}
                 className="w-full"
                 size="lg"
               >
-                {isAnalyzing && !isPaused ? (
+                {isAnalysisRunning ? (
                   <>
                     <Pause className="mr-2 h-5 w-5" />
                     Pause Analysis
@@ -378,6 +388,17 @@ export default function Home() {
                   </>
                 )}
               </Button>
+               {isAnalysisRunning && (
+                <Button
+                  onClick={handleStopAnalysis}
+                  variant="destructive"
+                  size="lg"
+                  className="w-full"
+                >
+                  <StopCircle className="mr-2 h-5 w-5" />
+                  Stop Analysis
+                </Button>
+              )}
             </div>
              <div className="mt-4 flex w-full max-w-md mx-auto items-center space-x-2">
               <Button
@@ -500,7 +521,7 @@ export default function Home() {
                   </CardHeader>
                   <CardContent>
                      <Progress value={analysisProgress} className="w-full mb-4" />
-                     {isAnalyzing && !isPaused && (
+                     {isAnalysisRunning && (
                       <div className="flex items-center justify-center rounded-lg border border-dashed p-12">
                           <Loader2 className="h-10 w-10 animate-spin text-muted-foreground" />
                       </div>
@@ -538,7 +559,7 @@ export default function Home() {
                         </div>
                       ))
                     ) : (
-                      !isAnalyzing && <p className="text-center text-muted-foreground pt-4">
+                      !isAnalyzing && !isPaused && <p className="text-center text-muted-foreground pt-4">
                         No duplicate or heavily related articles were found in the analyzed batches.
                       </p>
                     )}
@@ -552,3 +573,4 @@ export default function Home() {
     </div>
   );
 }
+
