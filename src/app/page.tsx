@@ -183,44 +183,6 @@ export default function Home() {
     }
   };
   
-  const processDuplicates = (foundPairs: {url1: string, url2: string, reason: string}[]) => {
-      const consolidatedGroups = new Map<string, {urls: Set<string>; reason: string}>();
-      for (const pair of foundPairs) {
-        let groupFound = false;
-        for (const group of consolidatedGroups.values()) {
-          if (group.urls.has(pair.url1) || group.urls.has(pair.url2)) {
-            group.urls.add(pair.url1);
-            group.urls.add(pair.url2);
-            groupFound = true;
-            break;
-          }
-        }
-        if (!groupFound) {
-          const newGroupKey = pair.url1;
-          consolidatedGroups.set(newGroupKey, {
-            urls: new Set([pair.url1, pair.url2]),
-            reason: pair.reason,
-          });
-        }
-      }
-
-      const articleMap = new Map(scrapedArticles.map((a) => [a.url, a]));
-      const newDuplicateGroups = Array.from(consolidatedGroups.values()).map((group) => {
-          return {
-            reason: group.reason || 'Found to be a duplicate or heavily related.',
-            articles: Array.from(group.urls)
-              .map((url) => {
-                const article = articleMap.get(url);
-                return article ? {title: article.metaTitle, url: article.url} : null;
-              })
-              .filter((a): a is {title: string; url: string} => a !== null),
-          };
-        })
-        .filter((group) => group.articles.length > 1);
-
-      setDuplicateGroups(newDuplicateGroups);
-  };
-  
   const runAnalysis = useCallback(async () => {
     if (!analysisState.current.isRunning || isPaused) return;
 
@@ -239,51 +201,57 @@ export default function Home() {
     const result = await compareArticles(article1, article2);
 
     if (result.isDuplicate && result.reason) {
-       setDuplicateGroups(prev => {
-          const foundPair = { url1: article1.url, url2: article2.url, reason: result.reason! };
-          const allPairs = [...prev.flatMap(g => {
-              const pairs = [];
-              for(let i=0; i<g.articles.length; i++) {
-                  for(let j=i+1; j<g.articles.length; j++) {
-                      pairs.push({url1: g.articles[i].url, url2: g.articles[j].url, reason: g.reason})
-                  }
-              }
-              return pairs;
-          }), foundPair];
-          
-          const consolidatedGroups = new Map<string, {urls: Set<string>; reason: string}>();
-          for (const pair of allPairs) {
-            let groupFound = false;
-            for (const group of consolidatedGroups.values()) {
-              if (group.urls.has(pair.url1) || group.urls.has(pair.url2)) {
-                group.urls.add(pair.url1);
-                group.urls.add(pair.url2);
-                groupFound = true;
-                break;
-              }
-            }
-            if (!groupFound) {
-              const newGroupKey = pair.url1;
-              consolidatedGroups.set(newGroupKey, {
-                urls: new Set([pair.url1, pair.url2]),
-                reason: pair.reason,
-              });
-            }
+      setDuplicateGroups(prevGroups => {
+        const articleMap = new Map(scrapedArticles.map((a) => [a.url, a]));
+        const article1Data = articleMap.get(article1.url);
+        const article2Data = articleMap.get(article2.url);
+
+        if (!article1Data || !article2Data) return prevGroups;
+
+        const newGroups = [...prevGroups];
+        let group1Index = -1;
+        let group2Index = -1;
+
+        // Find which groups the articles belong to
+        newGroups.forEach((group, index) => {
+          if (group.articles.some(a => a.url === article1.url)) {
+            group1Index = index;
           }
-          const articleMap = new Map(scrapedArticles.map((a) => [a.url, a]));
-          return Array.from(consolidatedGroups.values()).map((group) => {
-              return {
-                reason: group.reason || 'Found to be a duplicate.',
-                articles: Array.from(group.urls)
-                  .map((url) => {
-                    const article = articleMap.get(url);
-                    return article ? {title: article.metaTitle, url: article.url} : null;
-                  })
-                  .filter((a): a is {title: string; url: string} => a !== null),
-              };
-            })
-            .filter((group) => group.articles.length > 1);
-       });
+          if (group.articles.some(a => a.url === article2.url)) {
+            group2Index = index;
+          }
+        });
+
+        if (group1Index !== -1 && group2Index !== -1 && group1Index !== group2Index) {
+          // Merge two different groups
+          const group2 = newGroups[group2Index];
+          newGroups[group1Index].articles.push(...group2.articles);
+          // Remove the second group
+          newGroups.splice(group2Index, 1);
+        } else if (group1Index !== -1 && group2Index === -1) {
+          // Add article 2 to group 1
+          newGroups[group1Index].articles.push({ title: article2Data.metaTitle, url: article2Data.url });
+        } else if (group1Index === -1 && group2Index !== -1) {
+          // Add article 1 to group 2
+          newGroups[group2Index].articles.push({ title: article1Data.metaTitle, url: article1Data.url });
+        } else if (group1Index === -1 && group2Index === -1) {
+          // Create a new group
+          newGroups.push({
+            reason: result.reason!,
+            articles: [
+              { title: article1Data.metaTitle, url: article1Data.url },
+              { title: article2Data.metaTitle, url: article2Data.url },
+              
+            ],
+          });
+        }
+        
+        // Remove duplicates within groups
+        return newGroups.map(group => ({
+            ...group,
+            articles: Array.from(new Map(group.articles.map(a => [a.url, a])).values())
+        }));
+      });
     }
 
     setAnalyzedPairs(prev => prev + 1);
@@ -367,7 +335,7 @@ export default function Home() {
             <div className="mt-8 flex w-full max-w-md mx-auto items-center space-x-2">
                <Button
                 onClick={handleToggleAnalysis}
-                disabled={!canAnalyze || isAnalysisRunning || isAnalysisComplete}
+                disabled={!canAnalyze || (isAnalysisRunning && !isPaused) || isAnalysisComplete}
                 className="w-full"
                 size="lg"
               >
@@ -388,15 +356,14 @@ export default function Home() {
                   </>
                 )}
               </Button>
-               {isAnalysisRunning && (
+               {isAnalyzing && (
                 <Button
                   onClick={handleStopAnalysis}
                   variant="destructive"
                   size="lg"
-                  className="w-full"
                 >
                   <StopCircle className="mr-2 h-5 w-5" />
-                  Stop Analysis
+                  Stop
                 </Button>
               )}
             </div>
@@ -521,7 +488,7 @@ export default function Home() {
                   </CardHeader>
                   <CardContent>
                      <Progress value={analysisProgress} className="w-full mb-4" />
-                     {isAnalysisRunning && (
+                     {isAnalysisRunning && duplicateGroups.length === 0 && (
                       <div className="flex items-center justify-center rounded-lg border border-dashed p-12">
                           <Loader2 className="h-10 w-10 animate-spin text-muted-foreground" />
                       </div>
@@ -573,4 +540,3 @@ export default function Home() {
     </div>
   );
 }
-
