@@ -3,26 +3,27 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Rules for the 'articles' collection
     match /articles/{articleId} {
-      // Allow public read access (get and list) to the articles.
-      allow read: if true;
+      // Allow public read access to the articles collection.
+      // 'get' allows reading single documents, and 'list' allows querying the collection.
+      allow get, list: if true;
 
       // Anyone can create an article, but they MUST provide the required fields.
-      // In a real application, you would restrict this to authenticated users.
+      // In a real application, you would restrict this to authenticated users
+      // with: allow create: if request.auth != null && ...
       allow create: if request.resource.data.url is string &&
                        request.resource.data.h1 is string &&
                        request.resource.data.metaTitle is string &&
                        request.resource.data.metaDescription is string;
 
       // Anyone can delete documents from this collection.
+      // In a production app, you'd restrict this to authorized users.
       allow delete: if true;
-
-      // Deny any update operations.
-      allow update: if false;
     }
 
-    // Deny all other access to prevent unauthorized reads/writes.
+    // Deny all other access to prevent unauthorized reads or writes.
+    // This is a security best practice. The rule above for /articles
+    // will take precedence for that specific collection.
     match /{document=**} {
       allow read, write: if false;
     }
